@@ -85,6 +85,7 @@
     getSections: () => getAll(STORE_SECTIONS),
     putSection: (s) => put(STORE_SECTIONS, s),
     bulkPutSections: (arr) => bulkPut(STORE_SECTIONS, arr),
+    deleteSection: (id) => del(STORE_SECTIONS, id),
     getMeta, setMeta,
   };
 })(window);

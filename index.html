@@ -8,6 +8,7 @@
 
   <!-- PWA -->
   <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" type="image/png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -106,15 +107,10 @@
       </div>
 
       <section class="settings-block">
-        <h3>Порядок разделов</h3>
-        <p class="hint">Перетаскивать не нужно — используйте стрелки. Сверху — важнее.</p>
-        <div id="sectionOrder" class="section-order"></div>
-      </section>
-
-      <section class="settings-block">
-        <h3>Ключевые слова разделов</h3>
-        <p class="hint">Через запятую. По ним ввод распределяется по разделам.</p>
-        <div id="keywordEditor" class="keyword-editor"></div>
+        <h3>Разделы</h3>
+        <p class="hint">Название, цвет и ключевые слова (через запятую). Стрелки меняют порядок — сверху важнее. По ключевым словам ввод распределяется по разделам.</p>
+        <div id="sectionManager" class="section-manager"></div>
+        <button id="btnAddSection" class="btn btn--ghost btn--add">+ Добавить раздел</button>
       </section>
 
       <section class="settings-block">

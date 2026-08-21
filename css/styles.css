@@ -203,6 +203,9 @@ main {
   display: flex; align-items: flex-end; justify-content: center;
   backdrop-filter: blur(2px);
 }
+/* .overlay задаёт display:flex и перебивает UA-правило [hidden]{display:none};
+   возвращаем скрытие, иначе оверлеи «висят» поверх приложения. */
+.overlay[hidden] { display: none; }
 .sheet {
   background: var(--bg-elev);
   width: 100%; max-width: 640px;
@@ -292,23 +295,43 @@ main {
 .settings-block:first-of-type { border-top: none; }
 .settings-block h3 { margin: 0 0 4px; font-size: 15px; }
 .hint { color: var(--text-faint); font-size: 12px; margin: 0 0 10px; line-height: 1.4; }
-.section-order { display: flex; flex-direction: column; gap: 8px; }
-.order-row {
-  display: flex; align-items: center; gap: 10px;
+.section-manager { display: flex; flex-direction: column; gap: 10px; }
+.sm-row {
+  display: flex; flex-direction: column; gap: 8px;
   background: var(--bg-elev2); border: 1px solid var(--line);
-  border-radius: 10px; padding: 10px 12px;
+  border-radius: 12px; padding: 10px 12px;
 }
-.order-row .oname { flex: 1; font-weight: 600; font-size: 14px; }
-.order-row .odot { width: 10px; height: 10px; border-radius: 50%; }
-.order-arrows { display: flex; gap: 4px; }
-.order-arrows button {
+.sm-head { display: flex; align-items: center; gap: 8px; }
+.sm-color {
+  flex: none; width: 30px; height: 30px; padding: 0; cursor: pointer;
+  background: none; border: 1px solid var(--line); border-radius: 8px;
+}
+.sm-color::-webkit-color-swatch-wrapper { padding: 2px; }
+.sm-color::-webkit-color-swatch { border: none; border-radius: 5px; }
+.sm-name {
+  flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line);
+  color: var(--text); border-radius: 8px; padding: 8px 10px; font-size: 14px;
+  font-weight: 600; font-family: inherit;
+}
+.sm-arrows { display: flex; gap: 4px; flex: none; }
+.sm-arrows button {
   background: var(--bg); border: 1px solid var(--line); color: var(--text);
   width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 14px;
 }
-.keyword-editor { display: flex; flex-direction: column; gap: 10px; }
-.kw-row { display: flex; flex-direction: column; gap: 4px; }
-.kw-row label { font-size: 13px; font-weight: 600; }
-.text, .num, .select, .kw-row input {
+.sm-arrows button:disabled { opacity: 0.35; cursor: default; }
+.sm-del {
+  flex: none; width: 32px; height: 30px; background: var(--bg);
+  border: 1px solid var(--line); color: var(--danger);
+  border-radius: 8px; cursor: pointer; font-size: 14px;
+}
+.sm-del:disabled { opacity: 0.35; cursor: default; }
+.sm-kw {
+  width: 100%; background: var(--bg); border: 1px solid var(--line);
+  color: var(--text-dim); border-radius: 8px; padding: 8px 10px;
+  font-size: 13px; font-family: inherit;
+}
+.btn--add { width: 100%; margin-top: 10px; }
+.text, .num, .select {
   background: var(--bg-elev2); border: 1px solid var(--line); color: var(--text);
   border-radius: 10px; padding: 11px; font-size: 15px; font-family: inherit; width: 100%;
 }

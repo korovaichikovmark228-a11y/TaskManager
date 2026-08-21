@@ -1,0 +1,9 @@
+{
+  "name": "tasks-pwa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Личный офлайн-менеджер задач (PWA): голосовой ввод, разбор на задачи, офлайн, фокус-режим.",
+  "scripts": {
+    "test": "node tools/test-parser.js"
+  }
+}

@@ -76,17 +76,19 @@
   function sortedSections() {
     return state.sections.slice().sort((a, b) => a.order - b.order);
   }
+  function sortTasks(list) {
+    return list.slice().sort((a, b) => {
+      if (a.done !== b.done) return a.done ? 1 : -1;
+      const pr = PRIO_RANK[a.priority] - PRIO_RANK[b.priority];
+      if (pr !== 0) return pr;
+      if (a.due && b.due) return a.due < b.due ? -1 : 1;
+      if (a.due && !b.due) return -1;
+      if (!a.due && b.due) return 1;
+      return (a.createdAt || '') < (b.createdAt || '') ? -1 : 1;
+    });
+  }
   function tasksOf(sectionId) {
-    return state.tasks.filter((t) => t.sectionId === sectionId && !t.deleted)
-      .sort((a, b) => {
-        if (a.done !== b.done) return a.done ? 1 : -1;
-        const pr = PRIO_RANK[a.priority] - PRIO_RANK[b.priority];
-        if (pr !== 0) return pr;
-        if (a.due && b.due) return a.due < b.due ? -1 : 1;
-        if (a.due && !b.due) return -1;
-        if (!a.due && b.due) return 1;
-        return (a.createdAt || '') < (b.createdAt || '') ? -1 : 1;
-      });
+    return sortTasks(state.tasks.filter((t) => t.sectionId === sectionId && !t.deleted));
   }
 
   function formatDue(due) {
@@ -130,6 +132,24 @@
       for (const t of list) secEl.appendChild(taskEl(t));
       container.appendChild(secEl);
     }
+
+    // задачи без существующего раздела (после удаления раздела/импорта/синка)
+    const known = new Set(state.sections.map((s) => s.id));
+    const orphans = sortTasks(state.tasks.filter((t) => !t.deleted && !known.has(t.sectionId)));
+    if (orphans.length) {
+      total += orphans.length;
+      const secEl = document.createElement('div');
+      secEl.className = 'section';
+      const head = document.createElement('div');
+      head.className = 'section-header';
+      head.innerHTML = `<span class="section-dot" style="background:#6b7280"></span>
+        <span class="section-name">Без раздела</span>
+        <span class="section-count">${orphans.filter((t) => !t.done).length}</span>`;
+      secEl.appendChild(head);
+      for (const t of orphans) secEl.appendChild(taskEl(t));
+      container.appendChild(secEl);
+    }
+
     $('emptyState').hidden = total > 0;
   }
 
@@ -395,8 +415,7 @@
 
   /* ---------------- НАСТРОЙКИ ---------------- */
   function openSettings() {
-    renderSectionOrder();
-    renderKeywordEditor();
+    renderSectionManager();
     $('setWork').value = state.settings.workMin;
     $('setBreak').value = state.settings.breakMin;
     $('setSbUrl').value = state.settings.sbUrl || '';
@@ -411,23 +430,43 @@
   }
   function closeSettings() { $('settingsOverlay').hidden = true; }
 
-  function renderSectionOrder() {
-    const box = $('sectionOrder');
+  const PALETTE = ['#ff6b6b', '#8a6cff', '#35c67a', '#ff9f43', '#56b3ff', '#e857c4', '#f7b731', '#26d0ce'];
+
+  function renderSectionManager() {
+    const box = $('sectionManager');
     box.innerHTML = '';
     const secs = sortedSections();
     secs.forEach((s, i) => {
       const row = document.createElement('div');
-      row.className = 'order-row';
+      row.className = 'sm-row';
       row.innerHTML = `
-        <span class="odot" style="background:${s.color}"></span>
-        <span class="oname">${escapeHtml(s.name)}</span>
-        <span class="order-arrows">
-          <button data-dir="-1" ${i === 0 ? 'disabled' : ''}>↑</button>
-          <button data-dir="1" ${i === secs.length - 1 ? 'disabled' : ''}>↓</button>
-        </span>`;
-      row.querySelectorAll('button').forEach((b) => {
-        b.onclick = () => moveSection(s.id, parseInt(b.dataset.dir, 10));
-      });
+        <div class="sm-head">
+          <input type="color" class="sm-color" value="${escapeHtml(s.color || '#6b7280')}" aria-label="Цвет" />
+          <input type="text" class="sm-name" value="${escapeHtml(s.name)}" placeholder="Название" />
+          <span class="sm-arrows">
+            <button class="sm-up" ${i === 0 ? 'disabled' : ''} aria-label="Выше">↑</button>
+            <button class="sm-down" ${i === secs.length - 1 ? 'disabled' : ''} aria-label="Ниже">↓</button>
+          </span>
+          <button class="sm-del" aria-label="Удалить" ${secs.length <= 1 ? 'disabled' : ''}>🗑</button>
+        </div>
+        <input type="text" class="sm-kw" value="${escapeHtml((s.keywords || []).join(', '))}"
+               placeholder="ключевые слова через запятую" />`;
+
+      row.querySelector('.sm-color').onchange = async (e) => {
+        s.color = e.target.value; await DB.putSection(s); render();
+      };
+      const nameInput = row.querySelector('.sm-name');
+      nameInput.onchange = async () => {
+        s.name = nameInput.value.trim() || s.name; nameInput.value = s.name;
+        await DB.putSection(s); render();
+      };
+      row.querySelector('.sm-kw').onchange = async (e) => {
+        s.keywords = e.target.value.split(',').map((k) => k.trim()).filter(Boolean);
+        await DB.putSection(s);
+      };
+      row.querySelector('.sm-up').onclick = () => moveSection(s.id, -1);
+      row.querySelector('.sm-down').onclick = () => moveSection(s.id, 1);
+      row.querySelector('.sm-del').onclick = () => deleteSection(s.id);
       box.appendChild(row);
     });
   }
@@ -440,25 +479,43 @@
     [secs[idx].order, secs[swap].order] = [secs[swap].order, secs[idx].order];
     await DB.bulkPutSections(secs);
     state.sections = secs;
-    renderSectionOrder();
+    renderSectionManager();
     render();
   }
 
-  function renderKeywordEditor() {
-    const box = $('keywordEditor');
-    box.innerHTML = '';
-    for (const s of sortedSections()) {
-      const row = document.createElement('div');
-      row.className = 'kw-row';
-      row.innerHTML = `<label><span class="odot" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${s.color};margin-right:6px"></span>${escapeHtml(s.name)}</label>
-        <input type="text" value="${escapeHtml((s.keywords || []).join(', '))}" />`;
-      const input = row.querySelector('input');
-      input.onchange = async () => {
-        s.keywords = input.value.split(',').map((k) => k.trim()).filter(Boolean);
-        await DB.putSection(s);
-      };
-      box.appendChild(row);
-    }
+  async function addSection() {
+    const secs = sortedSections();
+    const maxOrder = secs.reduce((m, s) => Math.max(m, s.order || 0), -1);
+    const color = PALETTE[secs.length % PALETTE.length];
+    const s = { id: 'sec-' + uid().slice(0, 8), name: 'Новый раздел', order: maxOrder + 1, color, keywords: [] };
+    state.sections.push(s);
+    await DB.putSection(s);
+    renderSectionManager();
+    render();
+    // прокрутить к новому и выделить имя для правки
+    const box = $('sectionManager');
+    const last = box.lastElementChild;
+    if (last) { last.scrollIntoView({ block: 'nearest' }); const n = last.querySelector('.sm-name'); if (n) { n.focus(); n.select(); } }
+  }
+
+  async function deleteSection(id) {
+    const secs = sortedSections();
+    if (secs.length <= 1) { toast('Нужен хотя бы один раздел'); return; }
+    const sec = secs.find((s) => s.id === id);
+    const fallback = secs.find((s) => s.id !== id); // ближайший по порядку
+    const affected = state.tasks.filter((t) => t.sectionId === id && !t.deleted);
+    const msg = affected.length
+      ? `Удалить раздел «${sec.name}»? ${affected.length} задач(и) перейдут в «${fallback.name}».`
+      : `Удалить раздел «${sec.name}»?`;
+    if (!confirm(msg)) return;
+    // переносим задачи в запасной раздел (updatedAt → синхронизация подхватит)
+    for (const t of affected) { t.sectionId = fallback.id; await persistTask(t); }
+    state.sections = state.sections.filter((s) => s.id !== id);
+    await DB.deleteSection(id);
+    renderSectionManager();
+    render();
+    queueSync();
+    toast('Раздел удалён');
   }
 
   async function saveSettings() {
@@ -609,7 +666,8 @@
       if (data.sections) { await DB.bulkPutSections(data.sections); state.sections = data.sections; }
       if (data.tasks) { await DB.bulkPutTasks(data.tasks); state.tasks = (await DB.getTasks()).filter((t) => !t.deleted); }
       if (data.settings) { state.settings = Object.assign(state.settings, data.settings); await DB.setMeta('settings', state.settings); }
-      render(); renderSectionOrder(); renderKeywordEditor();
+      state.sections = state.sections.slice().sort((a, b) => a.order - b.order);
+      render(); renderSectionManager();
       toast('Импортировано');
     } catch (e) { toast('Не удалось прочитать файл'); }
   }
@@ -632,6 +690,7 @@
     $('btnSettings').onclick = openSettings;
     $('settingsClose').onclick = closeSettings;
     $('settingsSave').onclick = saveSettings;
+    $('btnAddSection').onclick = addSection;
     $('btnLlmTest').onclick = testLlm;
 
     // фокус
