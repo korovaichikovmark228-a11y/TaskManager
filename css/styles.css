@@ -317,6 +317,13 @@ main {
 .row2 > * { flex: 1; }
 .row2 label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-dim); }
 .num { text-align: center; }
+.switch-row {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; margin-bottom: 12px; cursor: pointer;
+}
+.switch-row input[type="checkbox"] {
+  width: 20px; height: 20px; accent-color: var(--accent); flex: none; cursor: pointer;
+}
 .auth-box { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
 .auth-status { font-size: 13px; color: var(--text-dim); min-height: 18px; }
 .auth-status.ok { color: var(--success); }

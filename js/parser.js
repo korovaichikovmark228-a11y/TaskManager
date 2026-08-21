@@ -54,15 +54,21 @@
     return d;
   }
 
+  // Границы слова для кириллицы: JS-`\b` работает только с ASCII (\w), поэтому
+  // рядом с русскими буквами он никогда не срабатывает. Используем lookaround
+  // по набору «буква/цифра» (кириллица + латиница + цифры).
+  const LB = '(?<![а-яёa-z0-9])'; // левая граница
+  const RB = '(?![а-яёa-z0-9])';  // правая граница
+
   // --- Определение срока. Возвращает {iso, matched} или null ---
   function detectDate(text) {
     const t = text.toLowerCase();
 
-    // относительные слова
+    // относительные слова (порядок: длинные раньше)
     const rel = [
-      { re: /\bпослезавтра\b/, days: 2 },
-      { re: /\bзавтра\b/, days: 1 },
-      { re: /\bсегодня\b/, days: 0 },
+      { re: new RegExp(LB + 'послезавтра' + RB), days: 2 },
+      { re: new RegExp(LB + 'завтра' + RB), days: 1 },
+      { re: new RegExp(LB + 'сегодня' + RB), days: 0 },
     ];
     for (const r of rel) {
       const m = t.match(r.re);
@@ -72,8 +78,8 @@
       }
     }
 
-    // «через N дней/недель/месяц»
-    let m = t.match(/через\s+(\d+)?\s*(день|дня|дней|недел[юяи]|неделю|месяц|месяца)/);
+    // «через N дней/недель/месяцев»
+    let m = t.match(new RegExp('через\\s+(\\d+)?\\s*(день|дня|дней|недел[юяией]+|месяц[аев]*)' + RB));
     if (m) {
       const n = m[1] ? parseInt(m[1], 10) : 1;
       const d = today();
@@ -85,18 +91,19 @@
     }
 
     // «на выходных / на выходные» → ближайшая суббота
-    if (/на\s+выходн/.test(t)) {
-      return { iso: toISO(nextWeekday(6)), matched: t.match(/на\s+выходн\w*/)[0] };
+    const wknd = t.match(/на\s+выходн[а-яё]*/);
+    if (wknd) {
+      return { iso: toISO(nextWeekday(6)), matched: wknd[0] };
     }
 
     // «к пятнице», «в пятницу», «во вторник», «до понедельника»
-    m = t.match(/\b(?:к|ко|в|во|до|на)\s+([а-яё]+)\b/);
+    m = t.match(new RegExp(LB + '(?:к|ко|в|во|до|на)\\s+([а-яё]+)' + RB));
     if (m && WEEKDAYS.hasOwnProperty(m[1])) {
       return { iso: toISO(nextWeekday(WEEKDAYS[m[1]])), matched: m[0] };
     }
     // просто название дня недели без предлога
     for (const w in WEEKDAYS) {
-      const re = new RegExp('\\b' + w + '\\b');
+      const re = new RegExp(LB + w + RB);
       if (re.test(t)) return { iso: toISO(nextWeekday(WEEKDAYS[w])), matched: w };
     }
 
@@ -177,6 +184,8 @@
     if (prioMatch) t = t.replace(new RegExp('\\s*' + escapeRe(prioMatch) + '\\s*', 'i'), ' ');
     // убрать ведущие «нужно/надо/мне»
     t = t.replace(/^(мне\s+)?(нужно|надо|нужно бы|стоит)\s+/i, '');
+    // подчистить осиротевшую пунктуацию после вырезанных слов срока/важности
+    t = t.replace(/\s+([,;:])/g, '$1').replace(/([,;:])\s*(?=[,;:])/g, '');
     t = t.replace(/\s+/g, ' ').replace(/^[\s,;:—-]+|[\s,;:—-]+$/g, '').trim();
     if (t) t = t.charAt(0).toUpperCase() + t.slice(1);
     return t;

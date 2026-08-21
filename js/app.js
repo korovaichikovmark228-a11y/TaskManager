@@ -29,7 +29,8 @@
   const state = {
     sections: [],
     tasks: [],
-    settings: { workMin: 25, breakMin: 5, sbUrl: '', sbKey: '', sound: 'lofi', volume: 45 },
+    settings: { workMin: 25, breakMin: 5, sbUrl: '', sbKey: '', sound: 'lofi', volume: 45,
+      llmEnabled: false, llmUrl: 'http://localhost:11434', llmModel: 'llama3.2' },
   };
 
   const timer = new Focus.Timer();
@@ -188,10 +189,27 @@
   }
 
   /* ---------------- БЫСТРЫЙ ВВОД → РАЗБОР ---------------- */
-  function handleQuickSubmit(text) {
+  async function handleQuickSubmit(text) {
     const raw = text.trim();
     if (!raw) return;
-    const drafts = Parser.parse(raw, state.sections);
+    let drafts = null;
+
+    // Опционально: умный разбор локальной LLM (Ollama). При любой ошибке
+    // или недоступности сервера — тихо откатываемся на rule-based парсер.
+    if (state.settings.llmEnabled && window.LLM) {
+      toast('Разбор ИИ…');
+      try {
+        drafts = await LLM.parse(raw, state.sections, {
+          url: state.settings.llmUrl,
+          model: state.settings.llmModel,
+        });
+      } catch (e) {
+        console.warn('LLM parse failed, fallback to rules:', e);
+        toast('ИИ недоступен — разобрал по правилам');
+      }
+    }
+    if (!drafts) drafts = Parser.parse(raw, state.sections);
+
     reviewItems = drafts.map((d) => ({
       id: null,
       text: d.text,
@@ -383,6 +401,11 @@
     $('setBreak').value = state.settings.breakMin;
     $('setSbUrl').value = state.settings.sbUrl || '';
     $('setSbKey').value = state.settings.sbKey || '';
+    $('setLlmEnabled').checked = !!state.settings.llmEnabled;
+    $('setLlmUrl').value = state.settings.llmUrl || 'http://localhost:11434';
+    $('setLlmModel').value = state.settings.llmModel || 'llama3.2';
+    $('llmStatus').textContent = '';
+    $('llmStatus').className = 'auth-status';
     updateAuthBox();
     $('settingsOverlay').hidden = false;
   }
@@ -441,6 +464,9 @@
   async function saveSettings() {
     state.settings.workMin = clampInt($('setWork').value, 1, 120, 25);
     state.settings.breakMin = clampInt($('setBreak').value, 1, 60, 5);
+    state.settings.llmEnabled = $('setLlmEnabled').checked;
+    state.settings.llmUrl = $('setLlmUrl').value.trim() || 'http://localhost:11434';
+    state.settings.llmModel = $('setLlmModel').value.trim() || 'llama3.2';
     const newUrl = $('setSbUrl').value.trim();
     const newKey = $('setSbKey').value.trim();
     const changed = newUrl !== state.settings.sbUrl || newKey !== state.settings.sbKey;
@@ -453,6 +479,28 @@
       catch (e) { updateSyncBadge('err'); toast('Не удалось подключить Supabase'); }
     }
     closeSettings();
+  }
+
+  async function testLlm() {
+    const s = $('llmStatus');
+    const url = $('setLlmUrl').value.trim() || 'http://localhost:11434';
+    const model = $('setLlmModel').value.trim() || 'llama3.2';
+    s.textContent = 'Проверяю…';
+    s.className = 'auth-status';
+    try {
+      const res = await LLM.ping({ url });
+      const has = res.models.some((m) => m === model || m.split(':')[0] === model);
+      if (has) {
+        s.textContent = `Связь есть. Модель «${model}» доступна.`;
+        s.className = 'auth-status ok';
+      } else {
+        s.textContent = `Сервер отвечает, но модели «${model}» нет. Доступны: ${res.models.join(', ') || '—'}. Загрузите: ollama pull ${model}`;
+        s.className = 'auth-status err';
+      }
+    } catch (e) {
+      s.textContent = 'Нет связи с Ollama. Проверьте, что сервер запущен и разрешён CORS (OLLAMA_ORIGINS).';
+      s.className = 'auth-status err';
+    }
   }
 
   /* ---------------- СИНХРОНИЗАЦИЯ (UI) ---------------- */
@@ -584,6 +632,7 @@
     $('btnSettings').onclick = openSettings;
     $('settingsClose').onclick = closeSettings;
     $('settingsSave').onclick = saveSettings;
+    $('btnLlmTest').onclick = testLlm;
 
     // фокус
     $('focusClose').onclick = closeFocus;

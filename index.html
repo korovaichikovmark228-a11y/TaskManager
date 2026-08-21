@@ -130,6 +130,25 @@
       </section>
 
       <section class="settings-block">
+        <h3>Умный разбор (локальная LLM)</h3>
+        <p class="hint">Необязательно. Точнее делит длинный ввод на задачи и определяет раздел/срок через локальную модель Ollama на вашем компьютере или сервере — бесплатно, без внешних API. Если модель недоступна, приложение автоматически использует разбор по правилам.</p>
+        <label class="switch-row">
+          <input id="setLlmEnabled" type="checkbox" />
+          <span>Использовать локальную LLM для разбора</span>
+        </label>
+        <label class="stack">Адрес Ollama
+          <input id="setLlmUrl" class="text" type="url" placeholder="http://localhost:11434" />
+        </label>
+        <label class="stack">Модель
+          <input id="setLlmModel" class="text" type="text" placeholder="llama3.2" />
+        </label>
+        <div class="row2">
+          <button id="btnLlmTest" class="btn btn--ghost">Проверить связь</button>
+        </div>
+        <div id="llmStatus" class="auth-status"></div>
+      </section>
+
+      <section class="settings-block">
         <h3>Синхронизация (Supabase)</h3>
         <p class="hint">Необязательно. Без этого приложение полностью работает офлайн на этом устройстве. Заполните, чтобы видеть задачи на всех устройствах.</p>
         <label class="stack">URL проекта
@@ -174,6 +193,7 @@
   <!-- Supabase JS (loaded lazily only if sync configured; see sync.js) -->
   <script src="js/db.js"></script>
   <script src="js/parser.js"></script>
+  <script src="js/llm.js"></script>
   <script src="js/speech.js"></script>
   <script src="js/focus.js"></script>
   <script src="js/sync.js"></script>
