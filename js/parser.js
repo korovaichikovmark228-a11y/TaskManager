@@ -118,16 +118,46 @@
     return { priority: 'medium', matched: null };
   }
 
-  // --- Определение раздела по словарю ключевых слов ---
+  // --- Лёгкий стеммер: отбрасывает частые русские окончания, чтобы разные
+  //     формы слова («работа»/«работе»/«работать») сводились к одной основе. ---
+  const ENDINGS = ['иями', 'ями', 'ами', 'ого', 'его', 'ому', 'ему', 'ыми', 'ими',
+    'ах', 'ях', 'ов', 'ев', 'ье', 'ья', 'ой', 'ей', 'ую', 'юю', 'ая', 'яя', 'ое', 'ее',
+    'ать', 'ять', 'ить', 'еть', 'ы', 'и', 'а', 'я', 'у', 'ю', 'о', 'е', 'ь', 'й'];
+  function stem(w) {
+    w = w.toLowerCase();
+    for (const e of ENDINGS) {
+      if (w.length - e.length >= 3 && w.endsWith(e)) return w.slice(0, -e.length);
+    }
+    return w;
+  }
+  function tokenize(t) {
+    return (t.toLowerCase().match(/[а-яёa-z0-9]+/g) || []);
+  }
+
+  // --- Определение раздела по словарю ключевых слов (с учётом морфологии) ---
   function detectSection(text, sections) {
     const t = text.toLowerCase();
+    const tokens = tokenize(t);
+    const tokenStems = tokens.map(stem);
     let best = null, bestScore = 0;
     for (const s of sections) {
       let score = 0;
       for (const kw of (s.keywords || [])) {
         const k = kw.trim().toLowerCase();
         if (!k) continue;
-        if (t.includes(k)) score += k.length; // длинное совпадение весомее
+        if (k.includes(' ')) {              // многословный ключ — только точное вхождение
+          if (t.includes(k)) score += k.length + 2;
+          continue;
+        }
+        if (t.includes(k)) { score += k.length; continue; } // прямое совпадение (в т.ч. ключи-основы)
+        // морфология: сравниваем основы слов
+        const ks = stem(k);
+        if (ks.length < 3) continue;
+        for (let i = 0; i < tokens.length; i++) {
+          if (tokenStems[i] === ks || (ks.length >= 4 && tokens[i].startsWith(ks))) {
+            score += ks.length; break;
+          }
+        }
       }
       if (score > bestScore) { bestScore = score; best = s; }
     }
@@ -225,5 +255,8 @@
     return result;
   }
 
-  global.Parser = { parse, detectDate, detectPriority, detectSection, splitTasks };
-})(window);
+  global.Parser = { parse, detectDate, detectPriority, detectSection, splitTasks, stem };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+// Node (тесты): позволяем require('js/parser.js')
+if (typeof module !== 'undefined' && module.exports) module.exports = (typeof window !== 'undefined' ? window : globalThis).Parser;

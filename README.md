@@ -123,6 +123,16 @@ sw.js                 — Service Worker (офлайн)
 manifest.webmanifest  — PWA-манифест
 icons/                — иконки
 tools/gen-icons.js    — генератор иконок (node tools/gen-icons.js)
+tools/test-parser.js  — тесты парсера (node tools/test-parser.js)
+```
+
+## Тесты
+
+Парсер (даты, важность, разделы, деление на задачи) покрыт тестами без
+зависимостей:
+
+```bash
+node tools/test-parser.js
 ```
 
 ## Этапы (из ТЗ)
