@@ -81,6 +81,29 @@ main {
   margin: 0 auto;
 }
 
+/* ---------- Filters ---------- */
+.filters {
+  display: flex; gap: 8px; padding: 4px 6px 12px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.filter-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-elev); color: var(--text-dim);
+  border: 1px solid var(--line); border-radius: 20px;
+  padding: 7px 14px; font-size: 13px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; transition: all .15s;
+}
+.filter-chip.is-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.filter-badge {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 10px;
+  background: var(--bg-elev2); color: var(--text-dim);
+  font-size: 11px; font-weight: 700; display: inline-flex;
+  align-items: center; justify-content: center;
+}
+.filter-chip.is-active .filter-badge { background: rgba(255,255,255,0.25); color: #fff; }
+.filter-badge.overdue { background: rgba(255,92,92,0.2); color: var(--danger); }
+.filter-chip.is-active .filter-badge.overdue { background: rgba(255,255,255,0.25); color: #fff; }
+
 .section { margin-bottom: 14px; }
 .section-header {
   display: flex; align-items: center; gap: 8px;

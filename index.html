@@ -29,10 +29,15 @@
 
   <!-- ======================= MAIN LIST ======================= -->
   <main id="viewList" class="view view--active">
+    <nav id="filters" class="filters">
+      <button class="filter-chip is-active" data-filter="all">Все</button>
+      <button class="filter-chip" data-filter="today">Сегодня<span class="filter-badge" id="badgeToday" hidden></span></button>
+      <button class="filter-chip" data-filter="overdue">Просроченные<span class="filter-badge overdue" id="badgeOverdue" hidden></span></button>
+    </nav>
     <div id="sectionsContainer" class="sections"></div>
     <div id="emptyState" class="empty-state" hidden>
       <div class="empty-emoji">🗒️</div>
-      <p>Пока задач нет.<br />Нажмите кнопку записи внизу и продиктуйте или напишите задачу.</p>
+      <p id="emptyText">Пока задач нет.<br />Нажмите кнопку записи внизу и продиктуйте или напишите задачу.</p>
     </div>
   </main>
 

@@ -29,9 +29,25 @@
   const state = {
     sections: [],
     tasks: [],
+    filter: 'all', // 'all' | 'today' | 'overdue'
     settings: { workMin: 25, breakMin: 5, sbUrl: '', sbKey: '', sound: 'lofi', volume: 45,
       llmEnabled: false, llmUrl: 'http://localhost:11434', llmModel: 'llama3.2' },
   };
+
+  const todayISO = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  // Предикат текущего фильтра. «Сегодня» = срок ≤ сегодня (просроченные тоже),
+  // «Просроченные» = срок < сегодня. В обоих видах выполненные скрыты.
+  function matchesFilter(t) {
+    if (state.filter === 'all') return true;
+    if (t.done || !t.due) return false;
+    const today = todayISO();
+    if (state.filter === 'today') return t.due <= today;
+    if (state.filter === 'overdue') return t.due < today;
+    return true;
+  }
 
   const timer = new Focus.Timer();
   const sound = new Focus.Soundscape();
@@ -105,52 +121,72 @@
     return { label, overdue: diff < 0 };
   }
 
+  function sectionBlock(name, color, list) {
+    const secEl = document.createElement('div');
+    secEl.className = 'section';
+    const head = document.createElement('div');
+    head.className = 'section-header';
+    head.innerHTML = `<span class="section-dot" style="background:${color}"></span>
+      <span class="section-name">${escapeHtml(name)}</span>
+      <span class="section-count">${list.filter((t) => !t.done).length}</span>`;
+    secEl.appendChild(head);
+    if (list.length === 0) {
+      const e = document.createElement('div');
+      e.className = 'section-empty';
+      e.textContent = '—';
+      secEl.appendChild(e);
+    }
+    for (const t of list) secEl.appendChild(taskEl(t));
+    return secEl;
+  }
+
   function render() {
     const container = $('sectionsContainer');
     container.innerHTML = '';
-    let total = 0;
+    const filtered = state.filter !== 'all';
+    let shown = 0;
 
     for (const sec of sortedSections()) {
-      const list = tasksOf(sec.id);
-      total += list.length;
-      const secEl = document.createElement('div');
-      secEl.className = 'section';
-
-      const head = document.createElement('div');
-      head.className = 'section-header';
-      head.innerHTML = `<span class="section-dot" style="background:${sec.color}"></span>
-        <span class="section-name">${escapeHtml(sec.name)}</span>
-        <span class="section-count">${list.filter(t => !t.done).length}</span>`;
-      secEl.appendChild(head);
-
-      if (list.length === 0) {
-        const e = document.createElement('div');
-        e.className = 'section-empty';
-        e.textContent = '—';
-        secEl.appendChild(e);
-      }
-      for (const t of list) secEl.appendChild(taskEl(t));
-      container.appendChild(secEl);
+      const list = tasksOf(sec.id).filter(matchesFilter);
+      if (filtered && list.length === 0) continue; // в фильтрах прячем пустые разделы
+      shown += list.length;
+      container.appendChild(sectionBlock(sec.name, sec.color, list));
     }
 
     // задачи без существующего раздела (после удаления раздела/импорта/синка)
     const known = new Set(state.sections.map((s) => s.id));
-    const orphans = sortTasks(state.tasks.filter((t) => !t.deleted && !known.has(t.sectionId)));
+    const orphans = sortTasks(state.tasks.filter((t) => !t.deleted && !known.has(t.sectionId)))
+      .filter(matchesFilter);
     if (orphans.length) {
-      total += orphans.length;
-      const secEl = document.createElement('div');
-      secEl.className = 'section';
-      const head = document.createElement('div');
-      head.className = 'section-header';
-      head.innerHTML = `<span class="section-dot" style="background:#6b7280"></span>
-        <span class="section-name">Без раздела</span>
-        <span class="section-count">${orphans.filter((t) => !t.done).length}</span>`;
-      secEl.appendChild(head);
-      for (const t of orphans) secEl.appendChild(taskEl(t));
-      container.appendChild(secEl);
+      shown += orphans.length;
+      container.appendChild(sectionBlock('Без раздела', '#6b7280', orphans));
     }
 
-    $('emptyState').hidden = total > 0;
+    updateFilterBadges();
+    $('emptyState').hidden = shown > 0;
+    const msg = {
+      all: 'Пока задач нет.<br />Нажмите кнопку записи внизу и продиктуйте или напишите задачу.',
+      today: 'На сегодня задач нет.<br />Отдыхайте или переключитесь на «Все».',
+      overdue: 'Просроченных задач нет. 👍',
+    };
+    $('emptyText').innerHTML = msg[state.filter] || msg.all;
+  }
+
+  function updateFilterBadges() {
+    const today = todayISO();
+    const active = state.tasks.filter((t) => !t.deleted && !t.done && t.due);
+    const nToday = active.filter((t) => t.due <= today).length;
+    const nOver = active.filter((t) => t.due < today).length;
+    const setBadge = (id, n) => { const b = $(id); b.textContent = n; b.hidden = n === 0; };
+    setBadge('badgeToday', nToday);
+    setBadge('badgeOverdue', nOver);
+  }
+
+  function setFilter(f) {
+    state.filter = f;
+    document.querySelectorAll('#filters .filter-chip').forEach((c) =>
+      c.classList.toggle('is-active', c.dataset.filter === f));
+    render();
   }
 
   function taskEl(t) {
@@ -682,6 +718,10 @@
       $('quickInput').value = '';
     };
     $('btnMic').onclick = toggleMic;
+
+    document.querySelectorAll('#filters .filter-chip').forEach((c) => {
+      c.onclick = () => setFilter(c.dataset.filter);
+    });
 
     $('reviewClose').onclick = closeReview;
     $('reviewCancel').onclick = closeReview;
