@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f1115" />
+  <title>Задачи</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Задачи" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <!-- ======================= HEADER ======================= -->
+  <header class="app-header">
+    <h1 class="app-title">Задачи</h1>
+    <div class="header-actions">
+      <span id="syncBadge" class="sync-badge" title="Статус синхронизации">офлайн</span>
+      <button id="btnSettings" class="icon-btn" aria-label="Настройки" title="Настройки">⚙</button>
+    </div>
+  </header>
+
+  <!-- ======================= MAIN LIST ======================= -->
+  <main id="viewList" class="view view--active">
+    <div id="sectionsContainer" class="sections"></div>
+    <div id="emptyState" class="empty-state" hidden>
+      <div class="empty-emoji">🗒️</div>
+      <p>Пока задач нет.<br />Нажмите кнопку записи внизу и продиктуйте или напишите задачу.</p>
+    </div>
+  </main>
+
+  <!-- ======================= QUICK INPUT BAR ======================= -->
+  <div class="quickbar">
+    <button id="btnMic" class="mic-btn" aria-label="Записать голосом" title="Записать голосом">
+      <span class="mic-icon">🎤</span>
+    </button>
+    <form id="quickForm" class="quick-form">
+      <input id="quickInput" class="quick-input" type="text" autocomplete="off"
+             placeholder="Напишите или продиктуйте задачу…" />
+      <button id="btnAdd" class="add-btn" type="submit" aria-label="Добавить">＋</button>
+    </form>
+  </div>
+
+  <!-- ======================= REVIEW / CONFIRM SCREEN ======================= -->
+  <div id="reviewOverlay" class="overlay" hidden>
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2>Проверьте разбор</h2>
+        <button id="reviewClose" class="icon-btn" aria-label="Закрыть">✕</button>
+      </div>
+      <p class="sheet-sub">Приложение разложило ввод на задачи. Поправьте раздел, срок или важность при необходимости.</p>
+      <div id="reviewList" class="review-list"></div>
+      <div class="sheet-foot">
+        <button id="reviewCancel" class="btn btn--ghost">Отмена</button>
+        <button id="reviewSave" class="btn btn--primary">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= FOCUS MODE ======================= -->
+  <div id="focusOverlay" class="overlay focus" hidden>
+    <div class="focus-inner">
+      <button id="focusClose" class="icon-btn focus-close" aria-label="Закрыть">✕</button>
+      <div class="focus-task" id="focusTaskText">—</div>
+      <div class="focus-ring">
+        <svg viewBox="0 0 220 220" class="ring-svg">
+          <circle class="ring-bg" cx="110" cy="110" r="100" />
+          <circle id="ringProgress" class="ring-fg" cx="110" cy="110" r="100" />
+        </svg>
+        <div class="focus-time" id="focusTime">25:00</div>
+        <div class="focus-phase" id="focusPhase">Фокус</div>
+      </div>
+      <div class="focus-controls">
+        <button id="focusToggle" class="btn btn--primary btn--big">Старт</button>
+        <button id="focusReset" class="btn btn--ghost">Сброс</button>
+      </div>
+      <div class="focus-audio">
+        <label class="audio-label">Фоновый звук</label>
+        <div class="audio-row">
+          <select id="focusSound" class="select">
+            <option value="none">Без звука</option>
+            <option value="lofi">Lo-Fi пэд</option>
+            <option value="rain">Дождь</option>
+            <option value="brown">Тёплый шум</option>
+            <option value="binaural">Бинауральные (концентрация)</option>
+          </select>
+          <input id="focusVolume" class="volume" type="range" min="0" max="100" value="45" />
+        </div>
+      </div>
+      <button id="focusDone" class="btn btn--success">Задача выполнена ✓</button>
+    </div>
+  </div>
+
+  <!-- ======================= SETTINGS ======================= -->
+  <div id="settingsOverlay" class="overlay" hidden>
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2>Настройки</h2>
+        <button id="settingsClose" class="icon-btn" aria-label="Закрыть">✕</button>
+      </div>
+
+      <section class="settings-block">
+        <h3>Порядок разделов</h3>
+        <p class="hint">Перетаскивать не нужно — используйте стрелки. Сверху — важнее.</p>
+        <div id="sectionOrder" class="section-order"></div>
+      </section>
+
+      <section class="settings-block">
+        <h3>Ключевые слова разделов</h3>
+        <p class="hint">Через запятую. По ним ввод распределяется по разделам.</p>
+        <div id="keywordEditor" class="keyword-editor"></div>
+      </section>
+
+      <section class="settings-block">
+        <h3>Таймер фокуса</h3>
+        <div class="row2">
+          <label>Работа (мин)
+            <input id="setWork" class="num" type="number" min="1" max="120" value="25" />
+          </label>
+          <label>Перерыв (мин)
+            <input id="setBreak" class="num" type="number" min="1" max="60" value="5" />
+          </label>
+        </div>
+      </section>
+
+      <section class="settings-block">
+        <h3>Синхронизация (Supabase)</h3>
+        <p class="hint">Необязательно. Без этого приложение полностью работает офлайн на этом устройстве. Заполните, чтобы видеть задачи на всех устройствах.</p>
+        <label class="stack">URL проекта
+          <input id="setSbUrl" class="text" type="url" placeholder="https://xxxx.supabase.co" />
+        </label>
+        <label class="stack">Anon key
+          <input id="setSbKey" class="text" type="text" placeholder="eyJhbGciOi…" />
+        </label>
+        <div id="authBox" class="auth-box">
+          <div class="row2">
+            <input id="authEmail" class="text" type="email" placeholder="почта" />
+            <input id="authPass" class="text" type="password" placeholder="пароль" />
+          </div>
+          <div class="row2">
+            <button id="btnSignIn" class="btn btn--primary">Войти</button>
+            <button id="btnSignUp" class="btn btn--ghost">Регистрация</button>
+          </div>
+          <div id="authStatus" class="auth-status"></div>
+          <button id="btnSignOut" class="btn btn--ghost" hidden>Выйти</button>
+          <button id="btnSyncNow" class="btn btn--ghost" hidden>Синхронизировать сейчас</button>
+        </div>
+      </section>
+
+      <section class="settings-block">
+        <h3>Данные</h3>
+        <div class="row2">
+          <button id="btnExport" class="btn btn--ghost">Экспорт JSON</button>
+          <button id="btnImport" class="btn btn--ghost">Импорт JSON</button>
+        </div>
+        <input id="importFile" type="file" accept="application/json" hidden />
+      </section>
+
+      <div class="sheet-foot">
+        <button id="settingsSave" class="btn btn--primary">Готово</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- toast -->
+  <div id="toast" class="toast" hidden></div>
+
+  <!-- Supabase JS (loaded lazily only if sync configured; see sync.js) -->
+  <script src="js/db.js"></script>
+  <script src="js/parser.js"></script>
+  <script src="js/speech.js"></script>
+  <script src="js/focus.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

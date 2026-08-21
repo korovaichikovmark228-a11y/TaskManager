@@ -1,0 +1,662 @@
+/* ============================================================
+   app.js — связывает всё вместе: список, ввод, разбор, фокус,
+   настройки, синхронизация, PWA.
+   ============================================================ */
+(function () {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const uid = () => (crypto.randomUUID ? crypto.randomUUID()
+    : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+  const nowISO = () => new Date().toISOString();
+
+  const PRIO_RANK = { high: 0, medium: 1, low: 2 };
+  const PRIO_LABEL = { high: 'важно', medium: 'средне', low: 'не срочно' };
+
+  const DEFAULT_SECTIONS = [
+    { id: 'work', name: 'Работа', order: 0, color: '#ff6b6b',
+      keywords: ['работа', 'работе', 'работы', 'рабоч', 'офис', 'начальник', 'клиент', 'встреч', 'созвон', 'отчёт', 'отчет', 'презентац', 'дедлайн', 'коллег', 'проект по работе'] },
+    { id: 'project', name: 'Свой проект', order: 1, color: '#8a6cff',
+      keywords: ['проект', 'проекта', 'проекте', 'стартап', 'продукт', 'разработ', 'код', 'дизайн', 'лендинг', 'приложени', 'фича', 'релиз', 'mvp'] },
+    { id: 'community', name: 'Сообщество', order: 2, color: '#35c67a',
+      keywords: ['сообществ', 'комьюнити', 'чат', 'канал', 'подписчик', 'контент', 'пост', 'эфир', 'вебинар', 'участник', 'рассылк'] },
+    { id: 'relationships', name: 'Отношения', order: 3, color: '#ff9f43',
+      keywords: ['отношени', 'жена', 'муж', 'девушк', 'партнёр', 'партнер', 'свидани', 'семь', 'мама', 'папа', 'родител', 'друз', 'друг', 'подар'] },
+    { id: 'personal', name: 'Личное', order: 4, color: '#56b3ff',
+      keywords: ['личное', 'здоровь', 'спорт', 'зал', 'врач', 'покуп', 'дом', 'быт', 'финанс', 'деньг', 'книг', 'учеб', 'хобби', 'отдых'] },
+  ];
+
+  const state = {
+    sections: [],
+    tasks: [],
+    settings: { workMin: 25, breakMin: 5, sbUrl: '', sbKey: '', sound: 'lofi', volume: 45 },
+  };
+
+  const timer = new Focus.Timer();
+  const sound = new Focus.Soundscape();
+  let focusTaskId = null;
+  let reviewItems = [];      // черновики для экрана подтверждения
+  let recognizer = null;
+  let recognizing = false;
+
+  /* ---------------- ЗАГРУЗКА ---------------- */
+  async function boot() {
+    await DB.open();
+    // разделы
+    let secs = await DB.getSections();
+    if (!secs || secs.length === 0) {
+      secs = DEFAULT_SECTIONS.slice();
+      await DB.bulkPutSections(secs);
+    }
+    state.sections = secs.sort((a, b) => a.order - b.order);
+    // настройки
+    const saved = await DB.getMeta('settings', null);
+    if (saved) state.settings = Object.assign(state.settings, saved);
+    // задачи
+    state.tasks = (await DB.getTasks()).filter((t) => !t.deleted);
+
+    timer.configure(state.settings.workMin, state.settings.breakMin);
+    render();
+    wire();
+    registerSW();
+
+    // авто-инициализация синхронизации
+    if (state.settings.sbUrl && state.settings.sbKey) {
+      Sync.init(state.settings.sbUrl, state.settings.sbKey)
+        .then(() => { updateSyncBadge(); if (Sync.currentUser()) doSync(true); })
+        .catch(() => updateSyncBadge('err'));
+    }
+    updateSyncBadge();
+    window.addEventListener('online', () => { updateSyncBadge(); if (Sync.currentUser()) doSync(true); });
+    window.addEventListener('offline', () => updateSyncBadge());
+  }
+
+  /* ---------------- РЕНДЕР СПИСКА ---------------- */
+  function sortedSections() {
+    return state.sections.slice().sort((a, b) => a.order - b.order);
+  }
+  function tasksOf(sectionId) {
+    return state.tasks.filter((t) => t.sectionId === sectionId && !t.deleted)
+      .sort((a, b) => {
+        if (a.done !== b.done) return a.done ? 1 : -1;
+        const pr = PRIO_RANK[a.priority] - PRIO_RANK[b.priority];
+        if (pr !== 0) return pr;
+        if (a.due && b.due) return a.due < b.due ? -1 : 1;
+        if (a.due && !b.due) return -1;
+        if (!a.due && b.due) return 1;
+        return (a.createdAt || '') < (b.createdAt || '') ? -1 : 1;
+      });
+  }
+
+  function formatDue(due) {
+    if (!due) return null;
+    const d = new Date(due + 'T00:00:00');
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    const diff = Math.round((d - t) / 86400000);
+    let label;
+    if (diff === 0) label = 'сегодня';
+    else if (diff === 1) label = 'завтра';
+    else if (diff === 2) label = 'послезавтра';
+    else if (diff === -1) label = 'вчера';
+    else label = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+    return { label, overdue: diff < 0 };
+  }
+
+  function render() {
+    const container = $('sectionsContainer');
+    container.innerHTML = '';
+    let total = 0;
+
+    for (const sec of sortedSections()) {
+      const list = tasksOf(sec.id);
+      total += list.length;
+      const secEl = document.createElement('div');
+      secEl.className = 'section';
+
+      const head = document.createElement('div');
+      head.className = 'section-header';
+      head.innerHTML = `<span class="section-dot" style="background:${sec.color}"></span>
+        <span class="section-name">${escapeHtml(sec.name)}</span>
+        <span class="section-count">${list.filter(t => !t.done).length}</span>`;
+      secEl.appendChild(head);
+
+      if (list.length === 0) {
+        const e = document.createElement('div');
+        e.className = 'section-empty';
+        e.textContent = '—';
+        secEl.appendChild(e);
+      }
+      for (const t of list) secEl.appendChild(taskEl(t));
+      container.appendChild(secEl);
+    }
+    $('emptyState').hidden = total > 0;
+  }
+
+  function taskEl(t) {
+    const el = document.createElement('div');
+    el.className = 'task' + (t.done ? ' done' : '');
+    const due = formatDue(t.due);
+    const dueChip = due ? `<span class="chip due ${due.overdue && !t.done ? 'overdue' : ''}">📅 ${due.label}</span>` : '';
+    const prioChip = t.priority !== 'medium'
+      ? `<span class="chip prio-${t.priority}">${PRIO_LABEL[t.priority]}</span>` : '';
+    el.innerHTML = `
+      <button class="check" aria-label="Выполнено">✓</button>
+      <div class="task-body">
+        <div class="task-text">${escapeHtml(t.text)}</div>
+        <div class="task-meta">${prioChip}${dueChip}</div>
+      </div>
+      <div class="task-actions">
+        <button class="mini-btn focus" title="Фокус">🎯</button>
+        <button class="mini-btn edit" title="Изменить">✏️</button>
+        <button class="mini-btn del" title="Удалить">🗑</button>
+      </div>`;
+    el.querySelector('.check').onclick = () => toggleDone(t.id);
+    el.querySelector('.focus').onclick = () => openFocus(t.id);
+    el.querySelector('.edit').onclick = () => openEdit(t.id);
+    el.querySelector('.del').onclick = () => deleteTask(t.id);
+    return el;
+  }
+
+  /* ---------------- CRUD ---------------- */
+  async function persistTask(t) {
+    t.updatedAt = nowISO();
+    await DB.putTask(t);
+    const i = state.tasks.findIndex((x) => x.id === t.id);
+    if (i >= 0) state.tasks[i] = t; else state.tasks.push(t);
+  }
+
+  async function toggleDone(id) {
+    const t = state.tasks.find((x) => x.id === id);
+    if (!t) return;
+    t.done = !t.done;
+    await persistTask(t);
+    render();
+    queueSync();
+  }
+
+  async function deleteTask(id) {
+    const t = state.tasks.find((x) => x.id === id);
+    if (!t) return;
+    if (!confirm('Удалить задачу?')) return;
+    t.deleted = true; // tombstone для синхронизации
+    t.updatedAt = nowISO();
+    await DB.putTask(t);
+    state.tasks = state.tasks.filter((x) => x.id !== id);
+    render();
+    queueSync();
+    toast('Задача удалена');
+  }
+
+  /* ---------------- БЫСТРЫЙ ВВОД → РАЗБОР ---------------- */
+  function handleQuickSubmit(text) {
+    const raw = text.trim();
+    if (!raw) return;
+    const drafts = Parser.parse(raw, state.sections);
+    reviewItems = drafts.map((d) => ({
+      id: null,
+      text: d.text,
+      sectionId: d.sectionId,
+      priority: d.priority,
+      due: d.due,
+    }));
+    openReview();
+  }
+
+  /* ---------------- ЭКРАН ПОДТВЕРЖДЕНИЯ ---------------- */
+  function openReview() {
+    const list = $('reviewList');
+    list.innerHTML = '';
+    reviewItems.forEach((item, idx) => list.appendChild(reviewItemEl(item, idx)));
+    $('reviewOverlay').hidden = false;
+  }
+  function closeReview() { $('reviewOverlay').hidden = true; reviewItems = []; }
+
+  function reviewItemEl(item, idx) {
+    const el = document.createElement('div');
+    el.className = 'review-item';
+    const secOptions = sortedSections().map((s) =>
+      `<option value="${s.id}" ${s.id === item.sectionId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
+    const prioOptions = ['high', 'medium', 'low'].map((p) =>
+      `<option value="${p}" ${p === item.priority ? 'selected' : ''}>${PRIO_LABEL[p]}</option>`).join('');
+    el.innerHTML = `
+      <textarea rows="2">${escapeHtml(item.text)}</textarea>
+      <div class="review-controls">
+        <select class="rv-section">${secOptions}</select>
+        <select class="rv-prio">${prioOptions}</select>
+        <input class="rv-due" type="date" value="${item.due || ''}" />
+        <button class="mini-btn del review-del" title="Убрать">🗑</button>
+      </div>`;
+    const ta = el.querySelector('textarea');
+    ta.oninput = () => { reviewItems[idx].text = ta.value; };
+    el.querySelector('.rv-section').onchange = (e) => { reviewItems[idx].sectionId = e.target.value; };
+    el.querySelector('.rv-prio').onchange = (e) => { reviewItems[idx].priority = e.target.value; };
+    el.querySelector('.rv-due').onchange = (e) => { reviewItems[idx].due = e.target.value || null; };
+    el.querySelector('.review-del').onclick = () => {
+      reviewItems.splice(idx, 1);
+      openReview();
+    };
+    // авто-рост textarea
+    ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
+    ta.oninput = () => { reviewItems[idx].text = ta.value; ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+    return el;
+  }
+
+  async function saveReview() {
+    const items = reviewItems.filter((i) => i.text && i.text.trim());
+    if (items.length === 0) { closeReview(); return; }
+    for (const item of items) {
+      if (item.id) {
+        const t = state.tasks.find((x) => x.id === item.id);
+        if (t) {
+          t.text = item.text.trim();
+          t.sectionId = item.sectionId;
+          t.priority = item.priority;
+          t.due = item.due || null;
+          await persistTask(t);
+        }
+      } else {
+        await persistTask({
+          id: uid(),
+          text: item.text.trim(),
+          sectionId: item.sectionId,
+          priority: item.priority,
+          due: item.due || null,
+          done: false,
+          deleted: false,
+          createdAt: nowISO(),
+          updatedAt: nowISO(),
+        });
+      }
+    }
+    closeReview();
+    render();
+    queueSync();
+    toast(items.length === 1 ? 'Задача добавлена' : `Добавлено задач: ${items.length}`);
+  }
+
+  function openEdit(id) {
+    const t = state.tasks.find((x) => x.id === id);
+    if (!t) return;
+    reviewItems = [{ id: t.id, text: t.text, sectionId: t.sectionId, priority: t.priority, due: t.due }];
+    openReview();
+  }
+
+  /* ---------------- ГОЛОСОВОЙ ВВОД ---------------- */
+  function toggleMic() {
+    if (!Speech.isSupported()) {
+      toast('Голосовой ввод не поддерживается в этом браузере — печатайте текстом');
+      $('quickInput').focus();
+      return;
+    }
+    if (recognizing) { stopMic(); return; }
+    recognizer = Speech.createRecognizer({ lang: 'ru-RU' });
+    let finalText = '';
+    recognizer.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) finalText += r[0].transcript + ' ';
+        else interim += r[0].transcript;
+      }
+      $('quickInput').value = (finalText + interim).trim();
+    };
+    recognizer.onerror = (e) => {
+      recognizing = false;
+      $('btnMic').classList.remove('recording');
+      if (e.error === 'not-allowed') toast('Нет доступа к микрофону');
+      else if (e.error !== 'aborted' && e.error !== 'no-speech') toast('Ошибка распознавания: ' + e.error);
+    };
+    recognizer.onend = () => {
+      recognizing = false;
+      $('btnMic').classList.remove('recording');
+      const v = $('quickInput').value.trim();
+      if (v) handleQuickSubmit(v), ($('quickInput').value = '');
+    };
+    try {
+      recognizer.start();
+      recognizing = true;
+      $('btnMic').classList.add('recording');
+    } catch (e) { toast('Не удалось запустить запись'); }
+  }
+  function stopMic() { if (recognizer) recognizer.stop(); }
+
+  /* ---------------- ФОКУС-РЕЖИМ ---------------- */
+  function openFocus(id) {
+    focusTaskId = id;
+    const t = state.tasks.find((x) => x.id === id);
+    $('focusTaskText').textContent = t ? t.text : 'Свободный фокус';
+    timer.configure(state.settings.workMin, state.settings.breakMin);
+    timer.reset();
+    $('focusSound').value = state.settings.sound || 'lofi';
+    $('focusVolume').value = state.settings.volume ?? 45;
+    updateFocusUI(timer.remaining, timer.total, timer.phase);
+    $('focusToggle').textContent = 'Старт';
+    $('focusOverlay').classList.remove('break');
+    $('focusOverlay').hidden = false;
+  }
+  function closeFocus() {
+    timer.stop();
+    sound.stop();
+    $('focusOverlay').hidden = true;
+    $('btnMic'); // noop
+  }
+  function updateFocusUI(remaining, total, phase) {
+    const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
+    const ss = String(remaining % 60).padStart(2, '0');
+    $('focusTime').textContent = `${mm}:${ss}`;
+    $('focusPhase').textContent = phase === 'work' ? 'Фокус' : 'Перерыв';
+    const circ = 2 * Math.PI * 100; // 628
+    const ratio = total > 0 ? remaining / total : 0;
+    $('ringProgress').style.strokeDashoffset = String(circ * (1 - ratio));
+    $('focusOverlay').classList.toggle('break', phase === 'break');
+  }
+
+  timer.onTick = (r, t, p) => updateFocusUI(r, t, p);
+  timer.onComplete = (finished) => {
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    beep();
+    if (finished === 'work') {
+      toast('Помидор завершён! Отметьте задачу или сделайте перерыв.');
+    } else {
+      toast('Перерыв окончен — снова в фокус.');
+    }
+    $('focusToggle').textContent = 'Старт';
+  };
+
+  function beep() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AC();
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.frequency.value = 660; o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.3, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+      o.start(); o.stop(ctx.currentTime + 0.6);
+    } catch (e) {}
+  }
+
+  /* ---------------- НАСТРОЙКИ ---------------- */
+  function openSettings() {
+    renderSectionOrder();
+    renderKeywordEditor();
+    $('setWork').value = state.settings.workMin;
+    $('setBreak').value = state.settings.breakMin;
+    $('setSbUrl').value = state.settings.sbUrl || '';
+    $('setSbKey').value = state.settings.sbKey || '';
+    updateAuthBox();
+    $('settingsOverlay').hidden = false;
+  }
+  function closeSettings() { $('settingsOverlay').hidden = true; }
+
+  function renderSectionOrder() {
+    const box = $('sectionOrder');
+    box.innerHTML = '';
+    const secs = sortedSections();
+    secs.forEach((s, i) => {
+      const row = document.createElement('div');
+      row.className = 'order-row';
+      row.innerHTML = `
+        <span class="odot" style="background:${s.color}"></span>
+        <span class="oname">${escapeHtml(s.name)}</span>
+        <span class="order-arrows">
+          <button data-dir="-1" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button data-dir="1" ${i === secs.length - 1 ? 'disabled' : ''}>↓</button>
+        </span>`;
+      row.querySelectorAll('button').forEach((b) => {
+        b.onclick = () => moveSection(s.id, parseInt(b.dataset.dir, 10));
+      });
+      box.appendChild(row);
+    });
+  }
+
+  async function moveSection(id, dir) {
+    const secs = sortedSections();
+    const idx = secs.findIndex((s) => s.id === id);
+    const swap = idx + dir;
+    if (swap < 0 || swap >= secs.length) return;
+    [secs[idx].order, secs[swap].order] = [secs[swap].order, secs[idx].order];
+    await DB.bulkPutSections(secs);
+    state.sections = secs;
+    renderSectionOrder();
+    render();
+  }
+
+  function renderKeywordEditor() {
+    const box = $('keywordEditor');
+    box.innerHTML = '';
+    for (const s of sortedSections()) {
+      const row = document.createElement('div');
+      row.className = 'kw-row';
+      row.innerHTML = `<label><span class="odot" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${s.color};margin-right:6px"></span>${escapeHtml(s.name)}</label>
+        <input type="text" value="${escapeHtml((s.keywords || []).join(', '))}" />`;
+      const input = row.querySelector('input');
+      input.onchange = async () => {
+        s.keywords = input.value.split(',').map((k) => k.trim()).filter(Boolean);
+        await DB.putSection(s);
+      };
+      box.appendChild(row);
+    }
+  }
+
+  async function saveSettings() {
+    state.settings.workMin = clampInt($('setWork').value, 1, 120, 25);
+    state.settings.breakMin = clampInt($('setBreak').value, 1, 60, 5);
+    const newUrl = $('setSbUrl').value.trim();
+    const newKey = $('setSbKey').value.trim();
+    const changed = newUrl !== state.settings.sbUrl || newKey !== state.settings.sbKey;
+    state.settings.sbUrl = newUrl;
+    state.settings.sbKey = newKey;
+    await DB.setMeta('settings', state.settings);
+    timer.configure(state.settings.workMin, state.settings.breakMin);
+    if (changed && newUrl && newKey) {
+      try { await Sync.init(newUrl, newKey); updateSyncBadge(); toast('Синхронизация настроена — войдите в аккаунт'); }
+      catch (e) { updateSyncBadge('err'); toast('Не удалось подключить Supabase'); }
+    }
+    closeSettings();
+  }
+
+  /* ---------------- СИНХРОНИЗАЦИЯ (UI) ---------------- */
+  function updateAuthBox() {
+    const user = Sync.currentUser();
+    const status = $('authStatus');
+    if (!state.settings.sbUrl || !state.settings.sbKey) {
+      status.textContent = 'Заполните URL и ключ, затем нажмите «Готово».';
+      status.className = 'auth-status';
+      $('btnSignOut').hidden = true; $('btnSyncNow').hidden = true;
+      return;
+    }
+    if (user) {
+      status.textContent = 'Вошли как ' + (user.email || user.id);
+      status.className = 'auth-status ok';
+      $('btnSignOut').hidden = false; $('btnSyncNow').hidden = false;
+    } else {
+      status.textContent = 'Не выполнен вход.';
+      status.className = 'auth-status';
+      $('btnSignOut').hidden = true; $('btnSyncNow').hidden = true;
+    }
+  }
+
+  async function handleSignIn(isSignUp) {
+    const email = $('authEmail').value.trim();
+    const pass = $('authPass').value;
+    if (!email || !pass) { toast('Введите почту и пароль'); return; }
+    if (!Sync.isConfigured()) {
+      try { await Sync.init(state.settings.sbUrl, state.settings.sbKey); }
+      catch (e) { toast('Сначала настройте Supabase'); return; }
+    }
+    try {
+      if (isSignUp) { await Sync.signUp(email, pass); toast('Регистрация выполнена'); }
+      else { await Sync.signIn(email, pass); toast('Вход выполнен'); }
+      updateAuthBox();
+      updateSyncBadge();
+      await doSync(true);
+    } catch (e) {
+      const s = $('authStatus'); s.textContent = 'Ошибка: ' + (e.message || e); s.className = 'auth-status err';
+    }
+  }
+
+  let syncTimer = null;
+  function queueSync() {
+    if (!Sync.currentUser()) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => doSync(false), 1500);
+  }
+
+  async function doSync(showToast) {
+    if (!Sync.currentUser()) return;
+    updateSyncBadge('syncing');
+    try {
+      const all = await DB.getTasks(); // включая tombstones
+      const res = await Sync.sync(all);
+      if (res.toSaveLocally.length) {
+        await DB.bulkPutTasks(res.toSaveLocally);
+        state.tasks = (await DB.getTasks()).filter((t) => !t.deleted);
+        render();
+      }
+      updateSyncBadge('ok');
+      if (showToast) toast(`Синхронизировано ↑${res.pushed} ↓${res.pulled}`);
+    } catch (e) {
+      console.error(e);
+      updateSyncBadge('err');
+      if (showToast) toast('Ошибка синхронизации');
+    }
+  }
+
+  function updateSyncBadge(force) {
+    const b = $('syncBadge');
+    let s = force;
+    if (!s) {
+      if (!navigator.onLine) s = 'offline';
+      else if (Sync.currentUser()) s = 'ok';
+      else s = 'local';
+    }
+    const map = {
+      offline: ['офлайн', ''], local: ['локально', ''],
+      ok: ['синхр.', 'ok'], syncing: ['синхр…', 'syncing'], err: ['ошибка', 'err'],
+    };
+    const [text, cls] = map[s] || map.local;
+    b.textContent = text;
+    b.className = 'sync-badge ' + cls;
+  }
+
+  /* ---------------- ЭКСПОРТ / ИМПОРТ ---------------- */
+  async function exportData() {
+    const data = {
+      version: 1, exportedAt: nowISO(),
+      sections: state.sections,
+      tasks: await DB.getTasks(),
+      settings: state.settings,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'tasks-backup.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+  async function importData(file) {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (data.sections) { await DB.bulkPutSections(data.sections); state.sections = data.sections; }
+      if (data.tasks) { await DB.bulkPutTasks(data.tasks); state.tasks = (await DB.getTasks()).filter((t) => !t.deleted); }
+      if (data.settings) { state.settings = Object.assign(state.settings, data.settings); await DB.setMeta('settings', state.settings); }
+      render(); renderSectionOrder(); renderKeywordEditor();
+      toast('Импортировано');
+    } catch (e) { toast('Не удалось прочитать файл'); }
+  }
+
+  /* ---------------- ПРИВЯЗКА СОБЫТИЙ ---------------- */
+  function wire() {
+    $('quickForm').onsubmit = (e) => {
+      e.preventDefault();
+      const v = $('quickInput').value;
+      if (!v.trim()) return;
+      handleQuickSubmit(v);
+      $('quickInput').value = '';
+    };
+    $('btnMic').onclick = toggleMic;
+
+    $('reviewClose').onclick = closeReview;
+    $('reviewCancel').onclick = closeReview;
+    $('reviewSave').onclick = saveReview;
+
+    $('btnSettings').onclick = openSettings;
+    $('settingsClose').onclick = closeSettings;
+    $('settingsSave').onclick = saveSettings;
+
+    // фокус
+    $('focusClose').onclick = closeFocus;
+    $('focusToggle').onclick = () => {
+      timer.toggle();
+      $('focusToggle').textContent = timer.running ? 'Пауза' : 'Продолжить';
+      if (timer.running && $('focusSound').value !== 'none') sound.play($('focusSound').value);
+    };
+    $('focusReset').onclick = () => {
+      timer.reset();
+      $('focusToggle').textContent = 'Старт';
+      updateFocusUI(timer.remaining, timer.total, timer.phase);
+    };
+    $('focusSound').onchange = (e) => {
+      state.settings.sound = e.target.value;
+      DB.setMeta('settings', state.settings);
+      if (timer.running) sound.play(e.target.value); else sound.stop();
+    };
+    $('focusVolume').oninput = (e) => {
+      const v = parseInt(e.target.value, 10) / 100;
+      sound.setVolume(v);
+      state.settings.volume = parseInt(e.target.value, 10);
+    };
+    $('focusVolume').onchange = () => DB.setMeta('settings', state.settings);
+    $('focusDone').onclick = async () => {
+      if (focusTaskId) {
+        const t = state.tasks.find((x) => x.id === focusTaskId);
+        if (t) { t.done = true; await persistTask(t); render(); queueSync(); }
+      }
+      closeFocus();
+      toast('Отличная работа!');
+    };
+
+    // синхронизация
+    $('btnSignIn').onclick = () => handleSignIn(false);
+    $('btnSignUp').onclick = () => handleSignIn(true);
+    $('btnSignOut').onclick = async () => { await Sync.signOut(); updateAuthBox(); updateSyncBadge(); toast('Вышли'); };
+    $('btnSyncNow').onclick = () => doSync(true);
+
+    // данные
+    $('btnExport').onclick = exportData;
+    $('btnImport').onclick = () => $('importFile').click();
+    $('importFile').onchange = (e) => { if (e.target.files[0]) importData(e.target.files[0]); };
+
+    // закрытие overlay по клику на фон
+    [['reviewOverlay', closeReview], ['settingsOverlay', closeSettings]].forEach(([id, fn]) => {
+      $(id).addEventListener('click', (e) => { if (e.target.id === id) fn(); });
+    });
+  }
+
+  /* ---------------- УТИЛИТЫ ---------------- */
+  function clampInt(v, min, max, def) {
+    const n = parseInt(v, 10);
+    if (isNaN(n)) return def;
+    return Math.min(max, Math.max(min, n));
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  let toastTimer = null;
+  function toast(msg) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+  }
+
+  function registerSW() {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW fail', e));
+    }
+  }
+
+  boot();
+})();

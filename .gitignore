@@ -1,0 +1,5 @@
+node_modules/
+_ptest.js
+.DS_Store
+*.log
+.vscode/
