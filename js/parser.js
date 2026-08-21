@@ -1,25 +1,54 @@
 /* ============================================================
    parser.js — rule-based разбор ввода на задачи (RU)
    Делит текст на задачи, определяет раздел, срок и важность.
+   Заточен под живую диктовку: терпит слова-паразиты («вот», «там»,
+   «типа», «ну»), вводные обороты («мне нужно», «дали задачу»,
+   «у меня есть») и градации важности («чуть менее срочно» → средне).
    Никаких внешних сервисов — только правила и словари.
    ============================================================ */
 (function (global) {
   'use strict';
 
-  // --- Ключевые слова важности ---
-  const HIGH = ['срочно', 'срочное', 'срочная', 'важно', 'важное', 'важная', 'горит',
-    'критично', 'критичн', 'обязательно', 'кровь из носа', 'asap', 'аврал', 'немедленно', 'первым делом'];
-  const LOW = ['не горит', 'не срочно', 'несрочно', 'когда-нибудь', 'когда нибудь',
-    'не важно', 'неважно', 'на досуге', 'если будет время', 'потом как-нибудь', 'low', 'без спешки'];
+  // --- Важность. Порядок проверки: MEDIUM-обороты → LOW → HIGH ---
+  // («менее срочно» должно давать средний, хотя содержит «срочно»;
+  //  «не срочно» — низкий, хотя содержит «срочно»; поэтому HIGH последним.)
+  const PRIO_MEDIUM = ['чуть менее срочно', 'чуть-чуть менее срочно', 'менее срочно',
+    'не сильно срочно', 'средний приоритет', 'средней важности', 'средне', 'умеренно'];
+  const LOW = ['не очень срочно', 'не очень важно', 'не срочно', 'несрочно', 'низкий приоритет',
+    'низкий', 'не важно', 'неважно', 'не горит', 'когда-нибудь', 'когда нибудь', 'на досуге',
+    'если будет время', 'потом как-нибудь', 'без спешки', 'не к спеху', 'не очень', 'по возможности'];
+  const HIGH = ['очень срочно', 'супер срочно', 'срочно', 'срочное', 'срочная', 'очень важно',
+    'важно', 'важное', 'важная', 'горит', 'критично', 'критичн', 'высокий приоритет',
+    'первым делом', 'обязательно', 'кровь из носа', 'asap', 'аврал', 'немедленно'];
+  // Все маркеры важности — для вычистки из заголовка (длинные раньше)
+  const PRIO_ALL = [].concat(PRIO_MEDIUM, LOW, HIGH, ['приоритет']).sort((a, b) => b.length - a.length);
 
-  // --- Коннекторы для разбиения (длинные — раньше) ---
-  const CONNECTORS = [
-    'а также', 'и ещё', 'а ещё', 'и еще', 'а еще', 'плюс ещё', 'плюс еще',
-    'а потом', 'и потом', 'потом ещё', 'потом еще',
-    'также', 'плюс', 'затем', 'потом'
-  ];
+  // --- Коннекторы-разделители задач (длинные — раньше) ---
+  const CONNECTORS = ['после этого', 'а потом', 'и потом', 'потом ещё', 'потом еще',
+    'а также', 'а ещё', 'и ещё', 'а еще', 'и еще', 'плюс ещё', 'плюс еще',
+    'затем', 'далее', 'потом', 'также', 'плюс', 'ещё', 'еще'];
 
-  // Дни недели (все склонения → индекс 0=Пн … 6=Вс, JS: 0=Вс)
+  // Глаголы-действия — по ним режем по запятой и опознаём начало задачи
+  const VERBS = ['погулять', 'разобрать', 'структурировать', 'внести', 'договориться',
+    'написать', 'купить', 'позвонить', 'сделать', 'отправить', 'встретить', 'встретиться',
+    'запланировать', 'проверить', 'забрать', 'оплатить', 'записаться', 'сходить', 'заехать',
+    'подготовить', 'закончить', 'доделать', 'починить', 'заказать', 'убрать', 'помыть'];
+
+  // Слова-паразиты (вычищаются как отдельные слова)
+  const FILLERS = ['вот', 'там', 'ну', 'типа', 'прям', 'прямо', 'короче', 'сейчас', 'тоже',
+    'допустим', 'это', 'такой', 'такую', 'такая', 'такое', 'чуть-чуть', 'чуть чуть', 'чуть',
+    'мне', 'просто', 'как-то', 'вообще', 'блин'];
+
+  // Вводные обороты (вырезаются целиком; длинные — раньше)
+  const INTRO = ['мне сейчас', 'мне дали такую задачу', 'мне дали задачу', 'дали такую задачу',
+    'дали задачу', 'у меня есть задача', 'у меня была задача', 'у меня стоит задача',
+    'у меня есть', 'есть задача', 'стоит задача', 'мне нужно бы', 'мне нужно', 'мне надо',
+    'нужно бы', 'у меня', 'нужно', 'надо', 'как бы', 'тоже задача', 'задачу', 'задача', 'дело'];
+
+  // Хвостовые обороты
+  const TAILS = ['и так далее', 'и т д', 'и тд', 'и прочее', 'и всё такое'];
+
+  // Дни недели (все склонения → индекс 0=Вс … 6=Сб, JS-стиль)
   const WEEKDAYS = {
     'понедельник': 1, 'понедельника': 1, 'понедельнику': 1,
     'вторник': 2, 'вторника': 2, 'вторнику': 2,
@@ -31,40 +60,27 @@
   };
 
   function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-
   function toISO(d) {
-    const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    return `${d.getFullYear()}-${m}-${day}`;
   }
-
-  function today() {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }
-
+  function today() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
   function nextWeekday(targetDow) {
     const d = today();
-    const cur = d.getDay();
-    let diff = (targetDow - cur + 7) % 7;
-    if (diff === 0) diff = 7; // «в пятницу», когда сегодня пятница → следующая
+    let diff = (targetDow - d.getDay() + 7) % 7;
+    if (diff === 0) diff = 7;
     d.setDate(d.getDate() + diff);
     return d;
   }
 
-  // Границы слова для кириллицы: JS-`\b` работает только с ASCII (\w), поэтому
-  // рядом с русскими буквами он никогда не срабатывает. Используем lookaround
-  // по набору «буква/цифра» (кириллица + латиница + цифры).
-  const LB = '(?<![а-яёa-z0-9])'; // левая граница
-  const RB = '(?![а-яёa-z0-9])';  // правая граница
+  // Границы слова для кириллицы (JS `\b` с кириллицей не работает).
+  const LB = '(?<![а-яёa-z0-9])';
+  const RB = '(?![а-яёa-z0-9])';
 
   // --- Определение срока. Возвращает {iso, matched} или null ---
   function detectDate(text) {
     const t = text.toLowerCase();
-
-    // относительные слова (порядок: длинные раньше)
     const rel = [
       { re: new RegExp(LB + 'послезавтра' + RB), days: 2 },
       { re: new RegExp(LB + 'завтра' + RB), days: 1 },
@@ -72,69 +88,48 @@
     ];
     for (const r of rel) {
       const m = t.match(r.re);
-      if (m) {
-        const d = today(); d.setDate(d.getDate() + r.days);
-        return { iso: toISO(d), matched: m[0] };
-      }
+      if (m) { const d = today(); d.setDate(d.getDate() + r.days); return { iso: toISO(d), matched: m[0] }; }
     }
-
-    // «через N дней/недель/месяцев»
     let m = t.match(new RegExp('через\\s+(\\d+)?\\s*(день|дня|дней|недел[юяией]+|месяц[аев]*)' + RB));
     if (m) {
       const n = m[1] ? parseInt(m[1], 10) : 1;
-      const d = today();
-      const unit = m[2];
+      const d = today(); const unit = m[2];
       if (unit.startsWith('недел')) d.setDate(d.getDate() + n * 7);
       else if (unit.startsWith('месяц')) d.setMonth(d.getMonth() + n);
       else d.setDate(d.getDate() + n);
       return { iso: toISO(d), matched: m[0] };
     }
-
-    // «на выходных / на выходные» → ближайшая суббота
     const wknd = t.match(/на\s+выходн[а-яё]*/);
-    if (wknd) {
-      return { iso: toISO(nextWeekday(6)), matched: wknd[0] };
-    }
-
-    // «к пятнице», «в пятницу», «во вторник», «до понедельника»
+    if (wknd) return { iso: toISO(nextWeekday(6)), matched: wknd[0] };
     m = t.match(new RegExp(LB + '(?:к|ко|в|во|до|на)\\s+([а-яё]+)' + RB));
-    if (m && WEEKDAYS.hasOwnProperty(m[1])) {
-      return { iso: toISO(nextWeekday(WEEKDAYS[m[1]])), matched: m[0] };
-    }
-    // просто название дня недели без предлога
+    if (m && WEEKDAYS.hasOwnProperty(m[1])) return { iso: toISO(nextWeekday(WEEKDAYS[m[1]])), matched: m[0] };
     for (const w in WEEKDAYS) {
-      const re = new RegExp(LB + w + RB);
-      if (re.test(t)) return { iso: toISO(nextWeekday(WEEKDAYS[w])), matched: w };
+      if (new RegExp(LB + w + RB).test(t)) return { iso: toISO(nextWeekday(WEEKDAYS[w])), matched: w };
     }
-
     return null;
   }
 
   // --- Определение важности ---
   function detectPriority(text) {
     const t = text.toLowerCase();
+    for (const w of PRIO_MEDIUM) if (t.includes(w)) return { priority: 'medium', matched: w };
     for (const w of LOW) if (t.includes(w)) return { priority: 'low', matched: w };
     for (const w of HIGH) if (t.includes(w)) return { priority: 'high', matched: w };
     return { priority: 'medium', matched: null };
   }
 
-  // --- Лёгкий стеммер: отбрасывает частые русские окончания, чтобы разные
-  //     формы слова («работа»/«работе»/«работать») сводились к одной основе. ---
+  // --- Лёгкий стеммер: сводит формы слова к основе ---
   const ENDINGS = ['иями', 'ями', 'ами', 'ого', 'его', 'ому', 'ему', 'ыми', 'ими',
     'ах', 'ях', 'ов', 'ев', 'ье', 'ья', 'ой', 'ей', 'ую', 'юю', 'ая', 'яя', 'ое', 'ее',
     'ать', 'ять', 'ить', 'еть', 'ы', 'и', 'а', 'я', 'у', 'ю', 'о', 'е', 'ь', 'й'];
   function stem(w) {
     w = w.toLowerCase();
-    for (const e of ENDINGS) {
-      if (w.length - e.length >= 3 && w.endsWith(e)) return w.slice(0, -e.length);
-    }
+    for (const e of ENDINGS) if (w.length - e.length >= 3 && w.endsWith(e)) return w.slice(0, -e.length);
     return w;
   }
-  function tokenize(t) {
-    return (t.toLowerCase().match(/[а-яёa-z0-9]+/g) || []);
-  }
+  function tokenize(t) { return (t.toLowerCase().match(/[а-яёa-z0-9]+/g) || []); }
 
-  // --- Определение раздела по словарю ключевых слов (с учётом морфологии) ---
+  // --- Определение раздела по словарю ключевых слов (с морфологией) ---
   function detectSection(text, sections) {
     const t = text.toLowerCase();
     const tokens = tokenize(t);
@@ -145,76 +140,85 @@
       for (const kw of (s.keywords || [])) {
         const k = kw.trim().toLowerCase();
         if (!k) continue;
-        if (k.includes(' ')) {              // многословный ключ — только точное вхождение
-          if (t.includes(k)) score += k.length + 2;
-          continue;
-        }
-        if (t.includes(k)) { score += k.length; continue; } // прямое совпадение (в т.ч. ключи-основы)
-        // морфология: сравниваем основы слов
+        if (k.includes(' ')) { if (t.includes(k)) score += k.length + 2; continue; }
+        if (t.includes(k)) { score += k.length; continue; }
         const ks = stem(k);
         if (ks.length < 3) continue;
         for (let i = 0; i < tokens.length; i++) {
-          if (tokenStems[i] === ks || (ks.length >= 4 && tokens[i].startsWith(ks))) {
-            score += ks.length; break;
-          }
+          if (tokenStems[i] === ks || (ks.length >= 4 && tokens[i].startsWith(ks))) { score += ks.length; break; }
         }
       }
       if (score > bestScore) { bestScore = score; best = s; }
     }
-    return best; // может быть null → назначим позже дефолт
+    return best;
   }
 
   // --- Разбиение сырого ввода на отдельные задачи ---
   function splitTasks(raw, sections) {
     let text = ' ' + raw.replace(/\s+/g, ' ').trim() + ' ';
 
-    // 1) вставляем разделитель перед маркером «по <раздел>» (кроме начала)
+    // 0) убрать хвостовые обороты до разбиения, иначе «далее» из «и так далее»
+    //    съедается как коннектор
+    text = stripAll(text, TAILS);
+    text = ' ' + text.replace(/\s+/g, ' ').trim() + ' ';
+
+    // 1) разделитель перед маркером «по <раздел>» (начинает новую задачу)
     for (const s of sections) {
       for (const kw of (s.keywords || [])) {
         const k = kw.trim().toLowerCase();
         if (k.length < 4) continue;
         const re = new RegExp('(.)\\s(по\\s+' + escapeRe(k) + ')', 'gi');
-        text = text.replace(re, (mm, before, marker) => {
-          if (/[.,;!]/.test(before)) return mm; // уже есть граница
-          return before + ' ||| ' + marker;
-        });
+        text = text.replace(re, (mm, before, marker) =>
+          /[.,;!]/.test(before) ? mm : before + ' ||| ' + marker);
       }
     }
-
-    // 2) коннекторы → разделитель
+    // 2) коннекторы-разделители
     for (const c of CONNECTORS) {
-      const re = new RegExp('\\s' + escapeRe(c) + '\\s', 'gi');
-      text = text.replace(re, ' ||| ');
+      text = text.replace(new RegExp('\\s' + escapeRe(c) + '\\s', 'gi'), ' ||| ');
     }
-
     // 3) сильные знаки препинания и переводы строк
     text = text.replace(/[.;!\n]+/g, ' ||| ');
-
-    // 4) запятая — мягкий разделитель: режем, только если после неё идёт
-    //    маркер «по …» или глагол-действие в начале
-    text = text.replace(/,\s*(?=по\s+[а-яё]|нужно|надо|сделать|позвонить|написать|купить|отправить|встретить|запланировать|проверить)/gi, ' ||| ');
+    // 4) запятая — мягкий разделитель перед маркером «по …» или глаголом
+    const verbAlt = VERBS.join('[а-яё]*|') + '[а-яё]*';
+    text = text.replace(new RegExp(',\\s*(?=по\\s+[а-яё]|нужно|надо|' + verbAlt + ')', 'gi'), ' ||| ');
+    // 5) «и/а + глагол-действие» → новая задача (купить хлеб И позвонить маме)
+    text = text.replace(new RegExp('\\s[иа]\\s+(?=(?:' + verbAlt + ')' + RB + ')', 'gi'), ' ||| ');
 
     return text.split('|||').map((s) => s.trim()).filter((s) => s.length > 1);
   }
 
+  // Удаляет из строки список слов/оборотов как отдельные единицы
+  function stripAll(t, list) {
+    for (const p of list) {
+      const re = new RegExp(LB + escapeRe(p).replace(/\\?\s+/g, '\\s+') + RB, 'gi');
+      t = t.replace(re, ' ');
+    }
+    return t;
+  }
+
   // --- Чистим текст задачи от служебных слов ---
   function cleanText(text, dateMatch, prioMatch, sections) {
-    let t = text;
-    // убрать префикс «по <раздел>»
+    let t = ' ' + text + ' ';
+
+    // префикс «по <раздел>»
     for (const s of sections) {
       for (const kw of (s.keywords || [])) {
         const k = kw.trim();
         if (k.length < 4) continue;
-        t = t.replace(new RegExp('^по\\s+' + escapeRe(k) + '\\s*[:—-]?\\s*', 'i'), '');
+        t = t.replace(new RegExp('(^|\\s)по\\s+' + escapeRe(k) + '[а-яё]*\\s*[:—-]?\\s*', 'i'), ' ');
       }
     }
-    // убрать совпадение даты
     if (dateMatch) t = t.replace(new RegExp('\\s*' + escapeRe(dateMatch) + '\\s*', 'i'), ' ');
-    // убрать маркер важности
-    if (prioMatch) t = t.replace(new RegExp('\\s*' + escapeRe(prioMatch) + '\\s*', 'i'), ' ');
-    // убрать ведущие «нужно/надо/мне»
-    t = t.replace(/^(мне\s+)?(нужно|надо|нужно бы|стоит)\s+/i, '');
-    // подчистить осиротевшую пунктуацию после вырезанных слов срока/важности
+    t = stripAll(t, PRIO_ALL);      // все маркеры важности, а не только сработавший
+
+    t = stripAll(t, TAILS);         // хвосты «и так далее»
+    t = stripAll(t, FILLERS);       // слова-паразиты
+    t = t.replace(/\s+/g, ' ');
+    t = stripAll(t, INTRO);         // вводные обороты («мне нужно», «у меня есть»)
+    t = t.replace(/\s+/g, ' ');
+    t = stripAll(t, FILLERS);       // второй проход (обороты могли обнажить паразитов)
+
+    // подчистить осиротевшую пунктуацию и края
     t = t.replace(/\s+([,;:])/g, '$1').replace(/([,;:])\s*(?=[,;:])/g, '');
     t = t.replace(/\s+/g, ' ').replace(/^[\s,;:—-]+|[\s,;:—-]+$/g, '').trim();
     if (t) t = t.charAt(0).toUpperCase() + t.slice(1);
@@ -232,25 +236,15 @@
       const prioRes = detectPriority(chunk);
       const section = detectSection(chunk, sections) || defaultSection;
       const text = cleanText(chunk, dateRes && dateRes.matched, prioRes.matched, sections);
-      if (!text) continue;
-      result.push({
-        text,
-        sectionId: section.id,
-        priority: prioRes.priority,
-        due: dateRes ? dateRes.iso : null,
-      });
+      if (!text || text.length < 2) continue; // отбрасываем пустышки/мусор
+      result.push({ text, sectionId: section.id, priority: prioRes.priority, due: dateRes ? dateRes.iso : null });
     }
-    // если ничего не распозналось как отдельные задачи — вернуть одну целиком
     if (result.length === 0) {
       const dateRes = detectDate(raw);
       const prioRes = detectPriority(raw);
       const section = detectSection(raw, sections) || defaultSection;
-      result.push({
-        text: cleanText(raw.trim(), dateRes && dateRes.matched, prioRes.matched, sections) || raw.trim(),
-        sectionId: section.id,
-        priority: prioRes.priority,
-        due: dateRes ? dateRes.iso : null,
-      });
+      const text = cleanText(raw.trim(), dateRes && dateRes.matched, prioRes.matched, sections) || raw.trim();
+      result.push({ text, sectionId: section.id, priority: prioRes.priority, due: dateRes ? dateRes.iso : null });
     }
     return result;
   }

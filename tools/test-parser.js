@@ -93,6 +93,43 @@ check('текст: без осиротевшей пунктуации',
 check('текст: все задачи непустые и ISO-срок валиден',
   t1.every((x) => x.text.length > 0 && (x.due === null || ISO_RE.test(x.due))));
 
+/* ---------------- ЖИВАЯ ДИКТОВКА (многозадачный поток) ---------------- */
+const dict = Parser.parse(
+  'вот мне сейчас по работе дали такую задачу структурировать файлы это очень срочно там вот ' +
+  'потом у меня там есть по проекту тоже задача мне нужно там сделать пару правок в коде это там ' +
+  'чуть-чуть менее срочно потом там мне нужно погулять с девушкой и так далее', SECTIONS);
+eq('диктовка: разбита на 3 задачи', dict.length, 3);
+if (dict.length === 3) {
+  eq('диктовка[0]: раздел work', dict[0].sectionId, 'work');
+  eq('диктовка[0]: важность high', dict[0].priority, 'high');
+  check('диктовка[0]: текст «структурировать файлы»', /структурировать файлы/i.test(dict[0].text), dict[0].text);
+  eq('диктовка[1]: раздел project', dict[1].sectionId, 'project');
+  eq('диктовка[1]: важность medium', dict[1].priority, 'medium');
+  check('диктовка[1]: текст про правки в коде', /правок в коде/i.test(dict[1].text), dict[1].text);
+  eq('диктовка[2]: раздел relationships', dict[2].sectionId, 'relationships');
+  check('диктовка[2]: текст «погулять с девушкой»', /погулять с девушкой/i.test(dict[2].text), dict[2].text);
+  check('диктовка[2]: без хвоста «и так далее»', !/так далее|и так/i.test(dict[2].text), dict[2].text);
+}
+check('диктовка: в заголовках нет слов-паразитов',
+  dict.every((t) => !/\b(вот|там|типа|это|тоже)\b/i.test(t.text)), JSON.stringify(dict.map((t) => t.text)));
+
+/* ---------------- ГРАДАЦИИ ВАЖНОСТИ ---------------- */
+eq('важность: очень срочно → high', Parser.detectPriority('это очень срочно').priority, 'high');
+eq('важность: чуть менее срочно → medium', Parser.detectPriority('чуть менее срочно').priority, 'medium');
+eq('важность: средний приоритет → medium', Parser.detectPriority('средний приоритет').priority, 'medium');
+eq('важность: не очень → low', Parser.detectPriority('это не очень').priority, 'low');
+eq('важность: низкий приоритет → low', Parser.detectPriority('низкий приоритет').priority, 'low');
+eq('важность: высокий приоритет → high', Parser.detectPriority('высокий приоритет').priority, 'high');
+
+/* ---------------- ДЕЛЕНИЕ «и + глагол» ---------------- */
+const andSplit = Parser.parse('купить хлеб завтра и позвонить маме срочно', SECTIONS);
+eq('«и+глагол»: две задачи', andSplit.length, 2);
+if (andSplit.length === 2) {
+  eq('«и+глагол»[0]: срок завтра', andSplit[0].due, todayPlus(1));
+  eq('«и+глагол»[1]: важность high', andSplit[1].priority, 'high');
+  check('«и+глагол»[1]: без «срочно» в тексте', !/срочно/i.test(andSplit[1].text), andSplit[1].text);
+}
+
 /* ---------------- ИТОГ ---------------- */
 console.log(`\nПройдено: ${pass}, провалено: ${fail}`);
 if (fail) {

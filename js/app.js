@@ -285,33 +285,57 @@
   }
   function closeReview() { $('reviewOverlay').hidden = true; reviewItems = []; }
 
+  const PRIO_ORDER = ['high', 'medium', 'low'];
+
   function reviewItemEl(item, idx) {
     const el = document.createElement('div');
     el.className = 'review-item';
+    const secColor = (sortedSections().find((s) => s.id === item.sectionId) || {}).color || '#6b7280';
     const secOptions = sortedSections().map((s) =>
       `<option value="${s.id}" ${s.id === item.sectionId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
-    const prioOptions = ['high', 'medium', 'low'].map((p) =>
-      `<option value="${p}" ${p === item.priority ? 'selected' : ''}>${PRIO_LABEL[p]}</option>`).join('');
+    const prioBtns = PRIO_ORDER.map((p) =>
+      `<button type="button" class="prio-pill prio-${p} ${p === item.priority ? 'active' : ''}" data-prio="${p}">${PRIO_LABEL[p]}</button>`).join('');
+
     el.innerHTML = `
-      <textarea rows="2">${escapeHtml(item.text)}</textarea>
-      <div class="review-controls">
-        <select class="rv-section">${secOptions}</select>
-        <select class="rv-prio">${prioOptions}</select>
-        <input class="rv-due" type="date" value="${item.due || ''}" />
-        <button class="mini-btn del review-del" title="Убрать">🗑</button>
+      <div class="ri-top">
+        <span class="ri-badge" style="background:${secColor}"></span>
+        <textarea class="ri-text" rows="1">${escapeHtml(item.text)}</textarea>
+        <button class="ri-del" title="Убрать" aria-label="Убрать">✕</button>
+      </div>
+      <div class="ri-fields">
+        <label class="ri-field ri-section-field">
+          <span class="ri-label">Раздел</span>
+          <select class="rv-section">${secOptions}</select>
+        </label>
+        <div class="ri-field">
+          <span class="ri-label">Важность</span>
+          <div class="prio-seg">${prioBtns}</div>
+        </div>
+        <label class="ri-field">
+          <span class="ri-label">Срок</span>
+          <input class="rv-due" type="date" value="${item.due || ''}" />
+        </label>
       </div>`;
-    const ta = el.querySelector('textarea');
-    ta.oninput = () => { reviewItems[idx].text = ta.value; };
-    el.querySelector('.rv-section').onchange = (e) => { reviewItems[idx].sectionId = e.target.value; };
-    el.querySelector('.rv-prio').onchange = (e) => { reviewItems[idx].priority = e.target.value; };
-    el.querySelector('.rv-due').onchange = (e) => { reviewItems[idx].due = e.target.value || null; };
-    el.querySelector('.review-del').onclick = () => {
-      reviewItems.splice(idx, 1);
-      openReview();
+
+    const ta = el.querySelector('.ri-text');
+    const grow = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+    ta.oninput = () => { reviewItems[idx].text = ta.value; grow(); };
+    setTimeout(grow, 0);
+
+    const badge = el.querySelector('.ri-badge');
+    el.querySelector('.rv-section').onchange = (e) => {
+      reviewItems[idx].sectionId = e.target.value;
+      const c = (sortedSections().find((s) => s.id === e.target.value) || {}).color || '#6b7280';
+      badge.style.background = c;
     };
-    // авто-рост textarea
-    ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
-    ta.oninput = () => { reviewItems[idx].text = ta.value; ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+    el.querySelectorAll('.prio-pill').forEach((btn) => {
+      btn.onclick = () => {
+        reviewItems[idx].priority = btn.dataset.prio;
+        el.querySelectorAll('.prio-pill').forEach((b) => b.classList.toggle('active', b === btn));
+      };
+    });
+    el.querySelector('.rv-due').onchange = (e) => { reviewItems[idx].due = e.target.value || null; };
+    el.querySelector('.ri-del').onclick = () => { reviewItems.splice(idx, 1); openReview(); };
     return el;
   }
 
@@ -365,6 +389,7 @@
     if (recognizing) { stopMic(); return; }
     recognizer = Speech.createRecognizer({ lang: 'ru-RU' });
     let finalText = '';
+    showLive('');
     recognizer.onresult = (e) => {
       let interim = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -372,17 +397,23 @@
         if (r.isFinal) finalText += r[0].transcript + ' ';
         else interim += r[0].transcript;
       }
-      $('quickInput').value = (finalText + interim).trim();
+      const full = (finalText + interim).trim();
+      $('quickInput').value = full;
+      // держим видимым конец строки в однострочном поле
+      const qi = $('quickInput'); qi.scrollLeft = qi.scrollWidth;
+      updateLive(full, interim);
     };
     recognizer.onerror = (e) => {
       recognizing = false;
       $('btnMic').classList.remove('recording');
+      hideLive();
       if (e.error === 'not-allowed') toast('Нет доступа к микрофону');
       else if (e.error !== 'aborted' && e.error !== 'no-speech') toast('Ошибка распознавания: ' + e.error);
     };
     recognizer.onend = () => {
       recognizing = false;
       $('btnMic').classList.remove('recording');
+      hideLive();
       const v = $('quickInput').value.trim();
       if (v) handleQuickSubmit(v), ($('quickInput').value = '');
     };
@@ -390,9 +421,24 @@
       recognizer.start();
       recognizing = true;
       $('btnMic').classList.add('recording');
-    } catch (e) { toast('Не удалось запустить запись'); }
+    } catch (e) { hideLive(); toast('Не удалось запустить запись'); }
   }
   function stopMic() { if (recognizer) recognizer.stop(); }
+
+  /* ---------------- ЖИВАЯ ТРАНСКРИПЦИЯ ---------------- */
+  function showLive() {
+    const box = $('liveTranscript');
+    $('liveText').innerHTML = '<span class="live-placeholder">Говорите… текст появится здесь</span>';
+    box.hidden = false;
+  }
+  function updateLive(full, interim) {
+    const el = $('liveText');
+    if (!full) { el.innerHTML = '<span class="live-placeholder">Говорите… текст появится здесь</span>'; return; }
+    const finalPart = full.slice(0, full.length - interim.length);
+    el.innerHTML = escapeHtml(finalPart) + '<span class="live-interim">' + escapeHtml(interim) + '</span>';
+    el.scrollTop = el.scrollHeight; // прокрутка за речью
+  }
+  function hideLive() { $('liveTranscript').hidden = true; }
 
   /* ---------------- ФОКУС-РЕЖИМ ---------------- */
   function openFocus(id) {
