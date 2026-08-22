@@ -5,8 +5,19 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = 'v24'; // держим в синхроне с CACHE в sw.js
+  const APP_VERSION = 'v25'; // держим в синхроне с CACHE в sw.js
   const $ = (id) => document.getElementById(id);
+
+  // Показ любой ошибки прямо на экране (для диагностики на телефоне).
+  function showFatal(msg) {
+    try {
+      const t = document.getElementById('toast');
+      if (t) { t.textContent = '⚠ ' + msg; t.hidden = false; }
+      else setTimeout(() => showFatal(msg), 300);
+    } catch (e) {}
+  }
+  window.addEventListener('error', (e) => showFatal((e.message || 'ошибка') + ' @' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || '')));
+  window.addEventListener('unhandledrejection', (e) => showFatal('promise: ' + ((e.reason && e.reason.message) || e.reason || '')));
   const uid = () => (crypto.randomUUID ? crypto.randomUUID()
     : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
   const nowISO = () => new Date().toISOString();

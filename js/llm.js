@@ -162,11 +162,10 @@
   const CLOUD_DEFAULTS = {
     url: 'https://openrouter.ai/api/v1',
     model: 'google/gemma-4-31b-it:free',
-    // запасные бесплатные модели — если основная занята (429), берём следующую
+    // запасная бесплатная модель — если основная занята (429). Одна, чтобы
+    // не висеть долго при переборе.
     fallbacks: [
       'nvidia/nemotron-3-super-120b-a12b:free',
-      'google/gemma-4-26b-a4b-it:free',
-      'nvidia/nemotron-3-nano-30b-a3b:free',
     ],
   };
 
@@ -187,7 +186,7 @@
   // Один запрос к конкретной модели. Возвращает content или бросает ошибку.
   async function cloudChat(url, apiKey, model, raw, sections, timeoutMs) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs || 30000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 15000);
     let resp;
     try {
       resp = await fetch(url + '/chat/completions', {
@@ -236,7 +235,7 @@
     let lastErr = null;
     for (const model of modelChain(opts)) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 15000);
+      const timer = setTimeout(() => controller.abort(), 12000);
       let resp;
       try {
         resp = await fetch(url + '/chat/completions', {
