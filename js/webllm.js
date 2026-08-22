@@ -120,17 +120,31 @@
   }
 
   // Разбор. Требует уже загруженного движка (load()).
-  async function parse(raw, sections) {
+  // Без response_format (строгий JSON-грамматик тормозит/ломает мелкие модели) —
+  // JSON вытаскиваем из ответа сами. С таймаутом: если модель зависла,
+  // прерываем и даём вызывающему коду откатиться на правила.
+  async function parse(raw, sections, opts) {
     if (!engine) throw new Error('Модель не загружена');
-    const reply = await engine.chat.completions.create({
-      messages: buildMessages(raw, sections),
-      response_format: { type: 'json_object' },
-      temperature: 0.2,
-      max_tokens: 800,
+    opts = opts || {};
+    const timeoutMs = opts.timeoutMs || 45000;
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        try { if (engine && engine.interruptGenerate) engine.interruptGenerate(); } catch (e) {}
+        reject(new Error('таймаут ' + Math.round(timeoutMs / 1000) + 'с (модель слишком долго думает)'));
+      }, timeoutMs);
     });
+    const gen = engine.chat.completions.create({
+      messages: buildMessages(raw, sections),
+      temperature: 0.2,
+      max_tokens: 700,
+    });
+    let reply;
+    try { reply = await Promise.race([gen, timeout]); }
+    finally { clearTimeout(timer); }
     const content = reply && reply.choices && reply.choices[0] && reply.choices[0].message.content;
     const drafts = normalize(extractJson(content), sections);
-    if (drafts.length === 0) throw new Error('Модель вернула пустой разбор');
+    if (drafts.length === 0) throw new Error('пустой разбор (модель ответила: «' + String(content || '').slice(0, 60) + '…»)');
     return drafts;
   }
 

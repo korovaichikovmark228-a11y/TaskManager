@@ -278,8 +278,8 @@
         lastError = 'WebGPU не поддерживается';
       } else {
         try {
-          if (!WebLLM.isReady()) { toast('Загружаю модель… (первый раз дольше)'); await WebLLM.load(state.settings.webllmModel); }
-          toast('Разбор моделью на устройстве…');
+          if (!WebLLM.isReady()) { toast('Загружаю модель… (первый раз дольше)', 120000); await WebLLM.load(state.settings.webllmModel); }
+          toast('Модель думает… (0.5B на телефоне — до ~40 сек)', 60000);
           drafts = await WebLLM.parse(raw, state.sections);
           engine = 'на устройстве';
         } catch (e) { lastError = 'модель: ' + (e && e.message || e); console.warn('WebLLM failed:', e); }
