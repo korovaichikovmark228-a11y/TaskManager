@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = 'v25'; // держим в синхроне с CACHE в sw.js
+  const APP_VERSION = 'v26'; // держим в синхроне с CACHE в sw.js
   const $ = (id) => document.getElementById(id);
 
   // Показ любой ошибки прямо на экране (для диагностики на телефоне).
@@ -286,6 +286,7 @@
     let drafts = null;
     let engine = null;      // какой движок реально разобрал
     let lastError = null;   // текст ошибки умного разбора (для показа)
+    setBusy(true);          // спиннер в кнопке ＋ на всё время разбора
 
     // 1) Облако (когда есть ключ и интернет) — быстро и умно. Приоритет.
     if (!drafts && state.settings.cloudKey && navigator.onLine && window.LLM) {
@@ -334,7 +335,17 @@
       if (time && !due) due = todayISO();
       return { id: null, text: d.text, sectionId: d.sectionId, priority: d.priority, due, time };
     });
+    setBusy(false);
     openReview();
+  }
+
+  // Спиннер в кнопке ＋ на время разбора (видно, что идёт работа, не завис).
+  function setBusy(on) {
+    const btn = $('btnAdd');
+    if (!btn) return;
+    btn.disabled = on;
+    btn.classList.toggle('busy', on);
+    btn.innerHTML = on ? '<span class="btn-spinner"></span>' : '＋';
   }
 
   /* ---------------- ЭКРАН ПОДТВЕРЖДЕНИЯ ---------------- */
@@ -450,6 +461,7 @@
       }
     }
     closeReview();
+    $('quickInput').value = ''; // очищаем ввод только после успешного сохранения
     render();
     queueSync();
     toast(items.length === 1 ? 'Задача добавлена' : `Добавлено задач: ${items.length}`);
@@ -983,9 +995,10 @@
     $('quickForm').onsubmit = (e) => {
       e.preventDefault();
       const v = $('quickInput').value;
-      if (!v.trim()) return;
+      // пустое поле → открываем ручное добавление в первый раздел
+      if (!v.trim()) { const s = sortedSections()[0]; if (s) openManualAdd(s.id); return; }
+      // текст НЕ стираем сразу — очистим только после успешного сохранения
       handleQuickSubmit(v);
-      $('quickInput').value = '';
     };
     $('btnMic').onclick = toggleMic;
 

@@ -208,6 +208,13 @@ main {
   background: var(--accent); color: #fff; border: none;
   border-radius: 24px; font-size: 26px; font-weight: 300;
   cursor: pointer; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.add-btn:disabled { opacity: 0.8; }
+.btn-spinner {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff;
+  animation: spin 0.7s linear infinite; display: inline-block;
 }
 .mic-btn {
   flex: none;
