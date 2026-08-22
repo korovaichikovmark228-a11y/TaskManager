@@ -102,15 +102,12 @@
     for (const it of parsed.tasks) {
       const text = (it && typeof it.text === 'string') ? it.text.trim() : '';
       if (!text) continue;
-      // Раздел задаётся ключевыми словами пользователя — доверяем правилам,
-      // если они уверенно нашли раздел; иначе берём выбор модели.
+      // Доверяем разделу от модели; правила — только запас, если id невалиден.
       let sectionId;
-      const ruleSec = global.Parser && Parser.detectSection(text, sections);
-      if (ruleSec) sectionId = ruleSec.id;
-      else if (ids.has(it.section_id)) sectionId = it.section_id;
+      if (ids.has(it.section_id)) sectionId = it.section_id;
       else {
         const byName = sections.find((s) => s.name.toLowerCase() === String(it.section_id || '').toLowerCase());
-        sectionId = byName ? byName.id : fb;
+        sectionId = byName ? byName.id : ((global.Parser && Parser.detectSection(text, sections)) || {}).id || fb;
       }
       let priority = it.priority;
       if (priority !== 'high' && priority !== 'low' && priority !== 'medium') priority = 'medium';

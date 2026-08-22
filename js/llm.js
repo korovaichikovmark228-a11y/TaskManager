@@ -72,15 +72,14 @@
     for (const it of parsed.tasks) {
       let text = (it && typeof it.text === 'string') ? it.text.trim() : '';
       if (!text) continue;
-      // Раздел определяется ключевыми словами пользователя — доверяем правилам,
-      // если они нашли раздел; иначе берём выбор модели.
+      // Доверяем разделу от модели (она понимает смысл: «встретить девушку с
+      // работы» → Отношения). Правила — только запасной вариант, если модель
+      // не дала валидный id.
       let sectionId;
-      const ruleSec = global.Parser && Parser.detectSection(text, sections);
-      if (ruleSec) sectionId = ruleSec.id;
-      else if (validIds.has(it.section_id)) sectionId = it.section_id;
+      if (validIds.has(it.section_id)) sectionId = it.section_id;
       else {
         const byName = sections.find((s) => s.name.toLowerCase() === String(it.section_id || '').toLowerCase());
-        sectionId = byName ? byName.id : fallbackId;
+        sectionId = byName ? byName.id : ((global.Parser && Parser.detectSection(text, sections)) || {}).id || fallbackId;
       }
       let priority = it.priority;
       if (priority !== 'high' && priority !== 'low' && priority !== 'medium') priority = 'medium';
