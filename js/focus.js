@@ -67,6 +67,7 @@
     this.ctx = null;
     this.master = null;
     this.nodes = [];
+    this._intervals = [];
     this.current = 'none';
     this.volume = 0.45;
   }
@@ -138,39 +139,44 @@
       oscL.start(); oscR.start();
       this.nodes.push(oscL, oscR, gL, gR, merger);
     } else if (type === 'lofi') {
-      // мягкий пэд из аккорда + тёплый шум
-      const chord = [220, 277.18, 329.63]; // A, C#, E
-      chord.forEach((f, i) => {
+      // лоу-фай: медленная смена аккордов (Am–F–C–G) + тёплый шум
+      const oscs = [];
+      for (let i = 0; i < 3; i++) {
         const osc = ctx.createOscillator();
-        osc.type = 'sine';
-        osc.frequency.value = f;
-        const g = ctx.createGain();
-        g.gain.value = 0.0;
-        osc.connect(g); g.connect(this.master);
-        osc.start();
-        // плавное дыхание громкости
-        const lfo = ctx.createOscillator();
-        const lfoG = ctx.createGain();
-        lfo.frequency.value = 0.06 + i * 0.02;
-        lfoG.gain.value = 0.09;
-        lfo.connect(lfoG); lfoG.connect(g.gain);
-        g.gain.value = 0.1;
-        lfo.start();
-        this.nodes.push(osc, g, lfo, lfoG);
-      });
+        osc.type = (i === 0) ? 'triangle' : 'sine';
+        const g = ctx.createGain(); g.gain.value = 0.07;
+        osc.connect(g); g.connect(this.master); osc.start();
+        oscs.push(osc); this.nodes.push(osc, g);
+      }
+      const chords = [
+        [220.00, 261.63, 329.63], // Am
+        [174.61, 220.00, 261.63], // F
+        [261.63, 329.63, 392.00], // C
+        [196.00, 246.94, 293.66], // G
+      ];
+      let ci = 0;
+      const setChord = () => {
+        const c = chords[ci % chords.length];
+        c.forEach((f, i) => { try { oscs[i].frequency.setTargetAtTime(f, ctx.currentTime, 0.5); } catch (e) {} });
+        ci++;
+      };
+      setChord();
+      this._intervals.push(setInterval(setChord, 4000));
       // тёплый шумовой фон
       const src = ctx.createBufferSource();
       src.buffer = this._noiseBuffer();
       src.loop = true;
       const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass'; filter.frequency.value = 500;
-      const g = ctx.createGain(); g.gain.value = 0.15;
+      filter.type = 'lowpass'; filter.frequency.value = 800;
+      const g = ctx.createGain(); g.gain.value = 0.12;
       src.connect(filter); filter.connect(g); g.connect(this.master);
       src.start();
       this.nodes.push(src, filter, g);
     }
   };
   Soundscape.prototype.stop = function () {
+    this._intervals.forEach((iv) => clearInterval(iv));
+    this._intervals = [];
     this.nodes.forEach((n) => { try { n.stop && n.stop(); n.disconnect && n.disconnect(); } catch (e) {} });
     this.nodes = [];
     this.current = 'none';

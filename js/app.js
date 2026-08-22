@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = 'v29'; // держим в синхроне с CACHE в sw.js
+  const APP_VERSION = 'v30'; // держим в синхроне с CACHE в sw.js
   const $ = (id) => document.getElementById(id);
 
   // Показ любой ошибки прямо на экране (для диагностики на телефоне).
@@ -116,6 +116,34 @@
     checkReminders();
     setInterval(checkReminders, 60000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) checkReminders(); });
+  }
+
+  /* ---------------- МУЗЫКА (глобально) ---------------- */
+  let musicPlaying = false;
+  function openMusic() {
+    const snd = (state.settings.sound && state.settings.sound !== 'none') ? state.settings.sound : 'lofi';
+    $('musicSound').value = snd;
+    $('musicVolume').value = state.settings.volume ?? 45;
+    updateMusicToggle();
+    $('musicOverlay').hidden = false;
+  }
+  function closeMusic() { $('musicOverlay').hidden = true; }
+  function updateMusicToggle() {
+    $('musicToggle').textContent = musicPlaying ? '⏹ Выключить' : '▶ Включить';
+    $('btnMusic').classList.toggle('playing', musicPlaying);
+  }
+  function toggleMusic() {
+    if (musicPlaying) {
+      sound.stop(); musicPlaying = false;
+    } else {
+      const snd = $('musicSound').value || 'lofi';
+      sound.setVolume((parseInt($('musicVolume').value, 10) || 45) / 100);
+      sound.play(snd);
+      state.settings.sound = snd;
+      musicPlaying = true;
+    }
+    DB.setMeta('settings', state.settings);
+    updateMusicToggle();
   }
 
   /* ---------------- ЛОКАЛЬНЫЕ НАПОМИНАНИЯ ---------------- */
@@ -1068,6 +1096,20 @@
     $('reviewClose').onclick = closeReview;
     $('reviewCancel').onclick = closeReview;
     $('reviewSave').onclick = saveReview;
+
+    $('btnMusic').onclick = openMusic;
+    $('musicClose').onclick = closeMusic;
+    $('musicToggle').onclick = toggleMusic;
+    $('musicSound').onchange = (e) => {
+      state.settings.sound = e.target.value; DB.setMeta('settings', state.settings);
+      if (musicPlaying) sound.play(e.target.value);
+    };
+    $('musicVolume').oninput = (e) => {
+      const v = parseInt(e.target.value, 10);
+      state.settings.volume = v; sound.setVolume(v / 100);
+    };
+    $('musicVolume').onchange = () => DB.setMeta('settings', state.settings);
+    $('musicOverlay').addEventListener('click', (e) => { if (e.target.id === 'musicOverlay') closeMusic(); });
 
     $('btnSettings').onclick = openSettings;
     $('settingsClose').onclick = closeSettings;

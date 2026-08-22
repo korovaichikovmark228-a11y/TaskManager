@@ -23,6 +23,7 @@
     <h1 class="app-title">Задачи</h1>
     <div class="header-actions">
       <span id="syncBadge" class="sync-badge" title="Статус синхронизации">офлайн</span>
+      <button id="btnMusic" class="icon-btn" aria-label="Музыка" title="Музыка">🎵</button>
       <button id="btnSettings" class="icon-btn" aria-label="Настройки" title="Настройки">⚙</button>
     </div>
   </header>
@@ -110,6 +111,29 @@
         </div>
       </div>
       <button id="focusDone" class="btn btn--success">Задача выполнена ✓</button>
+    </div>
+  </div>
+
+  <!-- ======================= MUSIC ======================= -->
+  <div id="musicOverlay" class="overlay" hidden>
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2>Музыка</h2>
+        <button id="musicClose" class="icon-btn" aria-label="Закрыть">✕</button>
+      </div>
+      <p class="sheet-sub">Фоновые звуки для концентрации — играют, пока приложение открыто. Генерируются в браузере, без интернета.</p>
+      <label class="stack">Звук
+        <select id="musicSound" class="select">
+          <option value="lofi">Lo-Fi (аккорды)</option>
+          <option value="rain">Дождь</option>
+          <option value="brown">Тёплый шум</option>
+          <option value="binaural">Бинауральные (в наушниках)</option>
+        </select>
+      </label>
+      <label class="stack">Громкость
+        <input id="musicVolume" class="volume" type="range" min="0" max="100" value="45" />
+      </label>
+      <button id="musicToggle" class="btn btn--primary btn--add">▶ Включить</button>
     </div>
   </div>
 
