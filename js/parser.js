@@ -62,6 +62,10 @@
     'воскресенье': 0, 'воскресенью': 0, 'воскресенья': 0
   };
 
+  // между «по» и названием раздела могут стоять служебные слова:
+  // «по поводу проекта», «по своему проекту», «а по поводу личного»
+  const POBRIDGE = '(?:поводу\\s+|про\\s+|своему\\s+|своей\\s+|моему\\s+|моей\\s+|нашему\\s+|нашей\\s+|этому\\s+)?';
+
   function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
   function toISO(d) {
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -188,17 +192,25 @@
     text = stripAll(text, TAILS);
     text = ' ' + text.replace(/\s+/g, ' ').trim() + ' ';
 
-    // 1) разделитель перед маркером «по <раздел>» (начинает новую задачу).
-    //    Матчим по основе слова, чтобы ловить формы: «по личному», «по работе».
+    const verbAlt = VERBS.join('[а-яё]*|') + '[а-яё]*';
+
+    // 1) разделитель перед маркером «по [поводу/своему] <раздел>» — начинает задачу.
+    //    Матчим по основе слова, ловим формы: «по личному», «по поводу отношений».
     const seen = new Set();
     for (const s of sections) {
       for (const kw of (s.keywords || [])) {
         const st = stem(kw.trim().toLowerCase());
         if (st.length < 4 || seen.has(st)) continue;
         seen.add(st);
-        const re = new RegExp('(.)\\s(по\\s+' + escapeRe(st) + '[а-яё]*)', 'gi');
-        text = text.replace(re, (mm, before, marker) =>
-          /[.,;!]/.test(before) ? mm : before + ' ||| ' + marker);
+        // «по [поводу] <раздел>»
+        text = text.replace(new RegExp('(.)\\s(по\\s+' + POBRIDGE + escapeRe(st) + '[а-яё]*)', 'gi'),
+          (mm, before, marker) => /[.,;!]/.test(before) ? mm : before + ' ||| ' + marker);
+        // голое название раздела перед глаголом: «Сообществе написать …»,
+        // но НЕ когда это часть маркера «по/поводу <раздел>»
+        if (st.length >= 6) {
+          text = text.replace(new RegExp('(?<!по)(?<!поводу)(?<!про)(?<!своему)(?<!своей)(?<!моему)(?<!моей)\\s(' + escapeRe(st) + '[а-яё]*\\s+(?=(?:' + verbAlt + ')' + RB + '))', 'gi'),
+            ' ||| $1');
+        }
       }
     }
     // 2) коннекторы-разделители
@@ -208,7 +220,6 @@
     // 3) сильные знаки препинания и переводы строк
     text = text.replace(/[.;!\n]+/g, ' ||| ');
     // 4) запятая — мягкий разделитель перед маркером «по …» или глаголом
-    const verbAlt = VERBS.join('[а-яё]*|') + '[а-яё]*';
     text = text.replace(new RegExp(',\\s*(?=по\\s+[а-яё]|нужно|надо|' + verbAlt + ')', 'gi'), ' ||| ');
     // 5) «и/а + глагол-действие» → новая задача (купить хлеб И позвонить маме)
     text = text.replace(new RegExp('\\s[иа]\\s+(?=(?:' + verbAlt + ')' + RB + ')', 'gi'), ' ||| ');
@@ -234,7 +245,9 @@
       for (const kw of (s.keywords || [])) {
         const st = stem(kw.trim().toLowerCase());
         if (st.length < 4) continue;
-        t = t.replace(new RegExp('(^|\\s)по\\s+' + escapeRe(st) + '[а-яё]*\\s*[:—-]?\\s*', 'i'), ' ');
+        t = t.replace(new RegExp('(^|\\s)по\\s+' + POBRIDGE + escapeRe(st) + '[а-яё]*\\s*[:—-]?\\s*', 'i'), ' ');
+        // голое название раздела в начале задачи: «Сообществе написать …»
+        if (st.length >= 6) t = t.replace(new RegExp('^\\s*' + escapeRe(st) + '[а-яё]*\\s+(?=[а-яё])', 'i'), ' ');
       }
     }
     if (dateMatch) t = t.replace(new RegExp('\\s*' + escapeRe(dateMatch) + '\\s*', 'i'), ' ');
@@ -255,8 +268,17 @@
     // подчистить осиротевшую пунктуацию и края
     t = t.replace(/\s+([,;:])/g, '$1').replace(/([,;:])\s*(?=[,;:])/g, '');
     t = t.replace(/\s+/g, ' ').replace(/^[\s,;:—-]+|[\s,;:—-]+$/g, '').trim();
+    // повисшие союзы по краям («…о встрече а» → «…о встрече»)
+    t = t.replace(new RegExp('\\s+(?:а|и|но|да|же)$', 'i'), '').replace(new RegExp('^(?:а|и|но|да)\\s+', 'i'), '').trim();
     if (t) t = t.charAt(0).toUpperCase() + t.slice(1);
     return t;
+  }
+
+  // Пустой/бессмысленный фрагмент (один предлог/союз, «по поводу» и т.п.)
+  const JUNK = /^(?:по|по поводу|поводу|про|для|на|в|во|с|со|и|а|но|да|же|это)$/i;
+  function isJunk(text) {
+    if (!text || text.trim().length < 3) return true;
+    return JUNK.test(text.trim());
   }
 
   // --- Главная функция ---
@@ -271,7 +293,7 @@
       const prioRes = detectPriority(chunk);
       const section = detectSection(chunk, sections) || defaultSection;
       const text = cleanText(chunk, dateRes && dateRes.matched, prioRes.matched, sections, timeRes && timeRes.matched);
-      if (!text || text.length < 2) continue; // отбрасываем пустышки/мусор
+      if (isJunk(text)) continue; // отбрасываем пустышки/предлоги
       const due = dateRes ? dateRes.iso : (timeRes ? toISO(today()) : null);
       result.push({ text, sectionId: section.id, priority: prioRes.priority, due, time: timeRes ? timeRes.time : null });
     }

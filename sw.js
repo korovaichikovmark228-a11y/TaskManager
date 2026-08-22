@@ -3,7 +3,7 @@
    рантайм с CDN — stale-while-revalidate в отдельный кэш (чтобы умный разбор
    на устройстве работал офлайн). Веса модели кэширует сам WebLLM.
    Supabase/Ollama и прочее — напрямую в сеть. */
-const CACHE = 'tasks-app-v11';
+const CACHE = 'tasks-app-v12';
 const CDN_CACHE = 'tasks-cdn-v1';
 const ASSETS = [
   './',

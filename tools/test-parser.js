@@ -162,6 +162,21 @@ if (wt.length === 1) {
 eq('двойной глагол: «сделать написать» → без «сделать»',
   Parser.parse('сделать написать два поста', SECTIONS)[0].text.toLowerCase().startsWith('написать'), true);
 
+/* ---------------- СВОБОДНАЯ РЕЧЬ: «по поводу / по своему» ---------------- */
+const free = Parser.parse(
+  'по своему проекту найти ошибки по сообществу написать два поста по поводу отношений ' +
+  'договориться с девушкой о встрече а по поводу личного купить абонемент в зал', SECTIONS);
+eq('своб.речь: 4 задачи', free.length, 4);
+if (free.length === 4) {
+  eq('своб.речь[0]: project', free[0].sectionId, 'project');
+  eq('своб.речь[1]: community', free[1].sectionId, 'community');
+  eq('своб.речь[2]: relationships', free[2].sectionId, 'relationships');
+  eq('своб.речь[3]: personal', free[3].sectionId, 'personal');
+  check('своб.речь: нет мусорных «по»/«по поводу»',
+    free.every((t) => !/^по( поводу)?$/i.test(t.text)), JSON.stringify(free.map((t) => t.text)));
+  check('своб.речь[3]: про абонемент', /абонемент|зал/i.test(free[3].text), free[3].text);
+}
+
 /* ---------------- ИТОГ ---------------- */
 console.log(`\nПройдено: ${pass}, провалено: ${fail}`);
 if (fail) {
