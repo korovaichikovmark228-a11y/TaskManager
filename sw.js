@@ -1,6 +1,6 @@
 /* Service Worker — офлайн-кэш оболочки приложения.
    Стратегия: app shell — cache-first; сеть (Supabase/CDN) — не кэшируем. */
-const CACHE = 'tasks-app-v7';
+const CACHE = 'tasks-app-v8';
 const ASSETS = [
   './',
   './index.html',

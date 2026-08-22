@@ -15,7 +15,7 @@
 
   const DEFAULT_SECTIONS = [
     { id: 'work', name: 'Работа', order: 0, color: '#ff6b6b',
-      keywords: ['работа', 'работе', 'работы', 'рабоч', 'офис', 'начальник', 'клиент', 'встреч', 'созвон', 'отчёт', 'отчет', 'презентац', 'дедлайн', 'коллег', 'проект по работе'] },
+      keywords: ['работа', 'работе', 'работы', 'рабоч', 'офис', 'начальник', 'руководител', 'босс', 'клиент', 'встреч', 'созвон', 'отчёт', 'отчет', 'презентац', 'дедлайн', 'коллег', 'проект по работе'] },
     { id: 'project', name: 'Свой проект', order: 1, color: '#8a6cff',
       keywords: ['проект', 'проекта', 'проекте', 'стартап', 'продукт', 'разработ', 'код', 'дизайн', 'лендинг', 'приложени', 'фича', 'релиз', 'mvp'] },
     { id: 'community', name: 'Сообщество', order: 2, color: '#35c67a',
@@ -414,8 +414,11 @@
       recognizing = false;
       $('btnMic').classList.remove('recording');
       hideLive();
-      const v = $('quickInput').value.trim();
-      if (v) handleQuickSubmit(v), ($('quickInput').value = '');
+      // НЕ разбираем автоматически: распознавание речи часто искажает слова,
+      // поэтому оставляем текст в поле — можно поправить и нажать ＋.
+      const qi = $('quickInput');
+      const v = qi.value.trim();
+      if (v) { qi.value = v; qi.focus(); qi.setSelectionRange(v.length, v.length); toast('Проверьте текст и нажмите ＋'); }
     };
     try {
       recognizer.start();
