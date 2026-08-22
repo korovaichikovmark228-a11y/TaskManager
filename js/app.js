@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = 'v26'; // держим в синхроне с CACHE в sw.js
+  const APP_VERSION = 'v27'; // держим в синхроне с CACHE в sw.js
   const $ = (id) => document.getElementById(id);
 
   // Показ любой ошибки прямо на экране (для диагностики на телефоне).
@@ -46,7 +46,8 @@
       llmEnabled: false, llmUrl: 'http://localhost:11434', llmModel: 'llama3.2',
       webllmEnabled: false, webllmModel: 'qwen2.5-0.5b',
       cloudEnabled: false, cloudUrl: 'https://openrouter.ai/api/v1',
-      cloudModel: 'google/gemma-4-31b-it:free', cloudKey: '' },
+      cloudModel: 'google/gemma-4-31b-it:free', cloudKey: '',
+      remindersEnabled: false },
   };
 
   const todayISO = () => {
@@ -110,6 +111,57 @@
     // явному «Включить модель» в настройках. Так плашка не появляется сама.
     setModelLoading(false); // на всякий случай гасим баннер при запуске
     const ver = $('appVersion'); if (ver) ver.textContent = APP_VERSION;
+
+    // напоминания: проверяем при запуске, раз в минуту и при возврате в приложение
+    checkReminders();
+    setInterval(checkReminders, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkReminders(); });
+  }
+
+  /* ---------------- ЛОКАЛЬНЫЕ НАПОМИНАНИЯ ---------------- */
+  // Момент напоминания: дата + время (или 09:00, если время не задано).
+  function reminderAt(t) {
+    if (!t.due) return null;
+    const time = (t.time && /^\d{2}:\d{2}$/.test(t.time)) ? t.time : '09:00';
+    const d = new Date(t.due + 'T' + time + ':00');
+    return isNaN(d.getTime()) ? null : d.getTime();
+  }
+  function checkReminders() {
+    if (!state.settings.remindersEnabled) return;
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const now = Date.now();
+    for (const t of state.tasks) {
+      if (t.done || t.deleted || t.notified || !t.due) continue;
+      const at = reminderAt(t);
+      if (at == null) continue;
+      // наступило и не слишком давно (в пределах 12 ч), чтобы не сыпать старьём
+      if (now >= at && now - at < 12 * 3600 * 1000) {
+        fireReminder(t);
+        t.notified = true;
+        DB.putTask(t); // локальный флаг, без изменения updatedAt/синхронизации
+      }
+    }
+  }
+  function fireReminder(t) {
+    try {
+      const sec = state.sections.find((s) => s.id === t.sectionId);
+      const body = (sec ? sec.name : '') + (t.time ? ' • ' + t.time : '');
+      const n = new Notification('Задача: ' + t.text, { body, tag: t.id, icon: 'icons/icon-192.png' });
+      n.onclick = () => { try { window.focus(); } catch (e) {} n.close(); };
+    } catch (e) { console.warn('notify fail', e); }
+  }
+  async function enableReminders() {
+    if (!('Notification' in window)) { $('remindersStatus').textContent = 'Уведомления не поддерживаются этим браузером.'; $('remindersStatus').className = 'auth-status err'; return false; }
+    let perm = Notification.permission;
+    if (perm === 'default') { try { perm = await Notification.requestPermission(); } catch (e) {} }
+    if (perm !== 'granted') {
+      $('remindersStatus').textContent = 'Разрешение на уведомления не выдано. Разрешите в настройках Safari для сайта.';
+      $('remindersStatus').className = 'auth-status err';
+      return false;
+    }
+    $('remindersStatus').textContent = 'Напоминания включены.';
+    $('remindersStatus').className = 'auth-status ok';
+    return true;
   }
 
   /* ---------------- РЕНДЕР СПИСКА ---------------- */
@@ -443,6 +495,7 @@
           t.priority = item.priority;
           t.due = item.due || null;
           t.time = item.time || null;
+          t.notified = false; // срок могли изменить — разрешаем напомнить снова
           await persistTask(t);
         }
       } else {
@@ -612,6 +665,11 @@
     $('setCloudUrl').value = state.settings.cloudUrl || 'https://openrouter.ai/api/v1';
     $('setCloudModel').value = state.settings.cloudModel || 'google/gemma-4-31b-it:free';
     $('cloudStatus').textContent = ''; $('cloudStatus').className = 'auth-status';
+    $('setReminders').checked = !!state.settings.remindersEnabled;
+    $('remindersStatus').textContent = ('Notification' in window)
+      ? (Notification.permission === 'granted' ? '' : (Notification.permission === 'denied' ? 'Уведомления запрещены в настройках Safari.' : ''))
+      : 'Уведомления не поддерживаются этим браузером.';
+    $('remindersStatus').className = 'auth-status';
     updateAuthBox();
     $('settingsOverlay').hidden = false;
   }
@@ -717,6 +775,7 @@
     state.settings.cloudEnabled = $('setCloudEnabled').checked || !!state.settings.cloudKey;
     state.settings.cloudUrl = $('setCloudUrl').value.trim() || 'https://openrouter.ai/api/v1';
     state.settings.cloudModel = $('setCloudModel').value.trim() || 'google/gemma-4-31b-it:free';
+    state.settings.remindersEnabled = $('setReminders').checked;
     const newUrl = $('setSbUrl').value.trim();
     const newKey = $('setSbKey').value.trim();
     const changed = newUrl !== state.settings.sbUrl || newKey !== state.settings.sbKey;
@@ -1022,6 +1081,21 @@
       else { state.settings.webllmModel = $('setWebllmModel').value; DB.setMeta('settings', state.settings); }
     };
     $('btnCloudTest').onclick = testCloud;
+    $('setReminders').onchange = async (e) => {
+      if (e.target.checked) {
+        const ok = await enableReminders();
+        e.target.checked = ok;
+        state.settings.remindersEnabled = ok;
+      } else {
+        state.settings.remindersEnabled = false;
+        $('remindersStatus').textContent = 'Напоминания выключены.'; $('remindersStatus').className = 'auth-status';
+      }
+      DB.setMeta('settings', state.settings);
+    };
+    $('btnReminderTest').onclick = async () => {
+      const ok = await enableReminders();
+      if (ok) { try { new Notification('Проверка ✓', { body: 'Напоминания работают', icon: 'icons/icon-192.png' }); } catch (e) {} }
+    };
     // вставил ключ → сразу сохраняем и включаем облако (без лишних действий)
     $('setCloudKey').onchange = () => {
       state.settings.cloudKey = $('setCloudKey').value.trim();

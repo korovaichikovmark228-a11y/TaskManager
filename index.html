@@ -141,6 +141,19 @@
       </section>
 
       <section class="settings-block">
+        <h3>Напоминания</h3>
+        <p class="hint">Уведомление приходит, когда наступает время задачи (у которой задан срок/время). Работает, пока приложение открыто или в фоне (на iPhone — если добавлено на «Домой»).</p>
+        <label class="switch-row">
+          <input id="setReminders" type="checkbox" />
+          <span>Включить напоминания</span>
+        </label>
+        <div class="row2">
+          <button id="btnReminderTest" class="btn btn--ghost">Проверить уведомление</button>
+        </div>
+        <div id="remindersStatus" class="auth-status"></div>
+      </section>
+
+      <section class="settings-block">
         <h3>Умный разбор на устройстве</h3>
         <p class="hint">Модель работает прямо в браузере, офлайн после первой загрузки. Бесплатно, данные не уходят с устройства. Нужен iOS 18+ (WebGPU). Первая загрузка ~0,6–1,2 ГБ, потом из кэша.</p>
         <div id="webllmState" class="engine-state">
