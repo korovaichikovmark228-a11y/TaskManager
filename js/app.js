@@ -269,49 +269,54 @@
     const raw = text.trim();
     if (!raw) return;
     let drafts = null;
+    let engine = null;      // какой движок реально разобрал
+    let lastError = null;   // текст ошибки умного разбора (для показа)
 
     // 1) Умный разбор моделью на устройстве (WebLLM). Работает офлайн.
-    if (!drafts && state.settings.webllmEnabled && window.WebLLM && WebLLM.isSupported()) {
-      try {
-        if (!WebLLM.isReady()) {
-          toast('Загружаю модель… (первый раз дольше)');
-          await WebLLM.load(state.settings.webllmModel);
-        }
-        toast('Разбор ИИ на устройстве…');
-        drafts = await WebLLM.parse(raw, state.sections);
-      } catch (e) {
-        console.warn('WebLLM parse failed, fallback:', e);
+    if (!drafts && state.settings.webllmEnabled && window.WebLLM) {
+      if (!WebLLM.isSupported()) {
+        lastError = 'WebGPU не поддерживается';
+      } else {
+        try {
+          if (!WebLLM.isReady()) { toast('Загружаю модель… (первый раз дольше)'); await WebLLM.load(state.settings.webllmModel); }
+          toast('Разбор моделью на устройстве…');
+          drafts = await WebLLM.parse(raw, state.sections);
+          engine = 'на устройстве';
+        } catch (e) { lastError = 'модель: ' + (e && e.message || e); console.warn('WebLLM failed:', e); }
       }
     }
 
     // 2) Умный разбор облачной моделью (когда есть интернет).
-    if (!drafts && state.settings.cloudEnabled && state.settings.cloudKey && navigator.onLine && window.LLM) {
-      toast('Разбор ИИ…');
-      try {
-        drafts = await LLM.parseCloud(raw, state.sections, {
-          url: state.settings.cloudUrl, apiKey: state.settings.cloudKey, model: state.settings.cloudModel,
-        });
-      } catch (e) {
-        console.warn('Cloud LLM failed, fallback:', e);
-        toast('Облако недоступно — разбор по правилам');
+    if (!drafts && state.settings.cloudEnabled && state.settings.cloudKey && window.LLM) {
+      if (!navigator.onLine) {
+        lastError = lastError || 'нет интернета для облака';
+      } else {
+        try {
+          toast('Разбор облачной моделью…');
+          drafts = await LLM.parseCloud(raw, state.sections, {
+            url: state.settings.cloudUrl, apiKey: state.settings.cloudKey, model: state.settings.cloudModel,
+          });
+          engine = 'облако';
+        } catch (e) { lastError = 'облако: ' + (e && e.message || e); console.warn('Cloud failed:', e); }
       }
     }
 
     // 3) Умный разбор через Ollama (если настроено и есть сеть).
     if (!drafts && state.settings.llmEnabled && window.LLM) {
-      toast('Разбор ИИ…');
       try {
-        drafts = await LLM.parse(raw, state.sections, {
-          url: state.settings.llmUrl,
-          model: state.settings.llmModel,
-        });
-      } catch (e) {
-        console.warn('LLM parse failed, fallback to rules:', e);
-      }
+        toast('Разбор через Ollama…');
+        drafts = await LLM.parse(raw, state.sections, { url: state.settings.llmUrl, model: state.settings.llmModel });
+        engine = 'Ollama';
+      } catch (e) { lastError = 'Ollama: ' + (e && e.message || e); console.warn('Ollama failed:', e); }
     }
 
+    // Если умный разбор был включён, но не сработал — честно скажем почему.
+    const smartOn = state.settings.webllmEnabled || (state.settings.cloudEnabled && state.settings.cloudKey) || state.settings.llmEnabled;
+    if (!drafts && smartOn && lastError) toast('ИИ не сработал (' + lastError + ') — разбор по правилам', 5000);
+
     // 4) Офлайн-разбор по правилам — всегда доступный базис.
-    if (!drafts) drafts = Parser.parse(raw, state.sections);
+    if (!drafts) { drafts = Parser.parse(raw, state.sections); engine = engine || 'правила'; }
+    else { toast('Разобрано: ' + engine); }
 
     reviewItems = drafts.map((d) => {
       let time = d.time || null;
@@ -919,6 +924,11 @@
     $('btnAddSection').onclick = addSection;
     $('btnLlmTest').onclick = testLlm;
     $('btnWebllmLoad').onclick = loadWebllm;
+    $('setWebllmEnabled').onchange = (e) => {
+      state.settings.webllmEnabled = e.target.checked;
+      DB.setMeta('settings', state.settings);
+      if (e.target.checked && window.WebLLM && WebLLM.isSupported() && !WebLLM.isReady()) loadWebllm();
+    };
     $('btnCloudTest').onclick = testCloud;
 
     // фокус
@@ -980,12 +990,12 @@
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
   let toastTimer = null;
-  function toast(msg) {
+  function toast(msg, ms) {
     const el = $('toast');
     el.textContent = msg;
     el.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+    toastTimer = setTimeout(() => { el.hidden = true; }, ms || 2600);
   }
 
   function registerSW() {
