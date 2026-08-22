@@ -94,14 +94,8 @@
     updateSyncBadge();
     window.addEventListener('online', () => { updateSyncBadge(); if (Sync.currentUser()) doSync(true); });
     window.addEventListener('offline', () => updateSyncBadge());
-
-    // Предзагрузка модели на устройстве с видимым индикатором.
-    if (state.settings.webllmEnabled && window.WebLLM && WebLLM.isSupported()) {
-      setModelLoading(true, 'Загрузка ИИ-модели…');
-      WebLLM.load(state.settings.webllmModel, webllmProgress)
-        .then(() => setModelLoading(false))
-        .catch((e) => { console.warn('WebLLM preload:', e); setModelLoading(false); });
-    }
+    // Модель на устройстве НЕ грузим автоматически на старте — только по
+    // явному «Включить модель» в настройках. Так плашка не появляется сама.
   }
 
   /* ---------------- РЕНДЕР СПИСКА ---------------- */
@@ -279,35 +273,26 @@
     let engine = null;      // какой движок реально разобрал
     let lastError = null;   // текст ошибки умного разбора (для показа)
 
-    // 1) Умный разбор моделью на устройстве (WebLLM). Работает офлайн.
-    if (!drafts && state.settings.webllmEnabled && window.WebLLM) {
-      if (!WebLLM.isSupported()) {
-        lastError = 'WebGPU не поддерживается';
-      } else {
-        try {
-          if (!WebLLM.isReady()) { setModelLoading(true, 'Загрузка ИИ-модели…'); await WebLLM.load(state.settings.webllmModel, webllmProgress); }
-          setModelLoading(true, '🧠 Модель думает…');
-          drafts = await WebLLM.parse(raw, state.sections);
-          engine = 'на устройстве';
-        } catch (e) { lastError = 'модель: ' + (e && e.message || e); console.warn('WebLLM failed:', e); }
-        finally { setModelLoading(false); }
-      }
+    // 1) Облако (когда есть ключ и интернет) — быстро и умно. Приоритет.
+    if (!drafts && state.settings.cloudKey && navigator.onLine && window.LLM) {
+      try {
+        toast('Разбор облачной моделью…');
+        drafts = await LLM.parseCloud(raw, state.sections, {
+          url: state.settings.cloudUrl, apiKey: state.settings.cloudKey, model: state.settings.cloudModel,
+        });
+        engine = 'облако';
+      } catch (e) { lastError = 'облако: ' + (e && e.message || e); console.warn('Cloud failed:', e); }
     }
 
-    // 2) Умный разбор облачной моделью (когда есть интернет).
-    // Достаточно, что вписан ключ — никаких доп. галочек.
-    if (!drafts && state.settings.cloudKey && window.LLM) {
-      if (!navigator.onLine) {
-        lastError = lastError || 'нет интернета для облака';
-      } else {
-        try {
-          toast('Разбор облачной моделью…');
-          drafts = await LLM.parseCloud(raw, state.sections, {
-            url: state.settings.cloudUrl, apiKey: state.settings.cloudKey, model: state.settings.cloudModel,
-          });
-          engine = 'облако';
-        } catch (e) { lastError = 'облако: ' + (e && e.message || e); console.warn('Cloud failed:', e); }
-      }
+    // 2) Модель на устройстве (WebLLM) — если включена (в основном как офлайн-запас).
+    if (!drafts && state.settings.webllmEnabled && window.WebLLM && WebLLM.isSupported()) {
+      try {
+        if (!WebLLM.isReady()) { setModelLoading(true, 'Загрузка ИИ-модели…'); await WebLLM.load(state.settings.webllmModel, webllmProgress); }
+        setModelLoading(true, '🧠 Модель думает…');
+        drafts = await WebLLM.parse(raw, state.sections);
+        engine = 'на устройстве';
+      } catch (e) { lastError = 'модель: ' + (e && e.message || e); console.warn('WebLLM failed:', e); }
+      finally { setModelLoading(false); }
     }
 
     // 3) Умный разбор через Ollama (если настроено и есть сеть).
@@ -1084,9 +1069,15 @@
   }
 
   function registerSW() {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW fail', e));
-    }
+    if (!('serviceWorker' in navigator)) return;
+    // при появлении новой версии — один раз перезагрузиться, чтобы не залипать
+    let refreshed = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshed) return; refreshed = true; location.reload();
+    });
+    navigator.serviceWorker.register('sw.js')
+      .then((reg) => { reg.update(); })
+      .catch((e) => console.warn('SW fail', e));
   }
 
   boot();

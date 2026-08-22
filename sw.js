@@ -1,9 +1,9 @@
 /* Service Worker — офлайн-кэш оболочки приложения.
-   Стратегия: app shell (свой origin) — cache-first; библиотека WebLLM и её
-   рантайм с CDN — stale-while-revalidate в отдельный кэш (чтобы умный разбор
-   на устройстве работал офлайн). Веса модели кэширует сам WebLLM.
+   Стратегия: app shell (свой origin) — NETWORK-FIRST: онлайн всегда берём
+   свежую версию (иначе PWA застревает на старой), офлайн — из кэша.
+   Библиотека WebLLM с CDN — stale-while-revalidate в отдельный кэш.
    Supabase/Ollama и прочее — напрямую в сеть. */
-const CACHE = 'tasks-app-v21';
+const CACHE = 'tasks-app-v22';
 const CDN_CACHE = 'tasks-cdn-v1';
 const ASSETS = [
   './',
@@ -42,16 +42,16 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
 
-  // Свой origin — cache-first (оболочка приложения)
+  // Свой origin — NETWORK-FIRST: свежая версия онлайн, кэш — только офлайн.
   if (url.origin === self.location.origin) {
     e.respondWith(
-      caches.match(e.request).then((cached) => cached || fetch(e.request).then((resp) => {
+      fetch(e.request).then((resp) => {
         if (resp && resp.status === 200 && resp.type === 'basic') {
           const clone = resp.clone();
           caches.open(CACHE).then((c) => c.put(e.request, clone));
         }
         return resp;
-      }).catch(() => cached))
+      }).catch(() => caches.match(e.request))
     );
     return;
   }
