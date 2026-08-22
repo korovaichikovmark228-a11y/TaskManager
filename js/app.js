@@ -295,7 +295,8 @@
     }
 
     // 2) Умный разбор облачной моделью (когда есть интернет).
-    if (!drafts && state.settings.cloudEnabled && state.settings.cloudKey && window.LLM) {
+    // Достаточно, что вписан ключ — никаких доп. галочек.
+    if (!drafts && state.settings.cloudKey && window.LLM) {
       if (!navigator.onLine) {
         lastError = lastError || 'нет интернета для облака';
       } else {
@@ -319,7 +320,7 @@
     }
 
     // Если умный разбор был включён, но не сработал — честно скажем почему.
-    const smartOn = state.settings.webllmEnabled || (state.settings.cloudEnabled && state.settings.cloudKey) || state.settings.llmEnabled;
+    const smartOn = state.settings.webllmEnabled || state.settings.cloudKey || state.settings.llmEnabled;
     if (!drafts && smartOn && lastError) toast('ИИ не сработал (' + lastError + ') — разбор по правилам', 5000);
 
     // 4) Офлайн-разбор по правилам — всегда доступный базис.
@@ -701,8 +702,8 @@
     state.settings.llmModel = $('setLlmModel').value.trim() || 'llama3.2';
     // webllmEnabled управляется кнопкой-переключателем (toggleWebllm), не здесь
     state.settings.webllmModel = $('setWebllmModel').value || 'qwen2.5-0.5b';
-    state.settings.cloudEnabled = $('setCloudEnabled').checked;
     state.settings.cloudKey = $('setCloudKey').value.trim();
+    state.settings.cloudEnabled = $('setCloudEnabled').checked || !!state.settings.cloudKey;
     state.settings.cloudUrl = $('setCloudUrl').value.trim() || 'https://openrouter.ai/api/v1';
     state.settings.cloudModel = $('setCloudModel').value.trim() || 'google/gemma-4-31b-it:free';
     const newUrl = $('setSbUrl').value.trim();
@@ -995,6 +996,14 @@
       else { state.settings.webllmModel = $('setWebllmModel').value; DB.setMeta('settings', state.settings); }
     };
     $('btnCloudTest').onclick = testCloud;
+    // вставил ключ → сразу сохраняем и включаем облако (без лишних действий)
+    $('setCloudKey').onchange = () => {
+      state.settings.cloudKey = $('setCloudKey').value.trim();
+      state.settings.cloudEnabled = !!state.settings.cloudKey;
+      $('setCloudEnabled').checked = state.settings.cloudEnabled;
+      DB.setMeta('settings', state.settings);
+      if (state.settings.cloudKey) toast('Ключ сохранён — умный разбор включён');
+    };
 
     // фокус
     $('focusClose').onclick = closeFocus;
