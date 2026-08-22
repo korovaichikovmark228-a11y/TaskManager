@@ -37,9 +37,9 @@
     'собрать', 'организовать', 'обсудить', 'ответить', 'прочитать', 'изучить', 'создать'];
 
   // Слова-паразиты (вычищаются как отдельные слова)
-  const FILLERS = ['вот', 'там', 'ну', 'типа', 'прям', 'прямо', 'короче', 'сейчас', 'тоже',
-    'допустим', 'это', 'такой', 'такую', 'такая', 'такое', 'чуть-чуть', 'чуть чуть', 'чуть',
-    'мне', 'просто', 'как-то', 'вообще', 'блин'];
+  const FILLERS = ['вот', 'там', 'ну', 'типа', 'прям', 'прямо', 'короче', 'сейчас', 'щас', 'счас',
+    'тоже', 'допустим', 'это', 'такой', 'такую', 'такая', 'такое', 'чуть-чуть', 'чуть чуть', 'чуть',
+    'мне', 'просто', 'как-то', 'вообще', 'блин', 'будет', 'собственно'];
 
   // Вводные обороты (вырезаются целиком; длинные — раньше)
   const INTRO = ['мне сейчас', 'мне дали такую задачу', 'мне дали задачу', 'дали такую задачу',
@@ -108,6 +108,29 @@
     if (m && WEEKDAYS.hasOwnProperty(m[1])) return { iso: toISO(nextWeekday(WEEKDAYS[m[1]])), matched: m[0] };
     for (const w in WEEKDAYS) {
       if (new RegExp(LB + w + RB).test(t)) return { iso: toISO(nextWeekday(WEEKDAYS[w])), matched: w };
+    }
+    return null;
+  }
+
+  // --- Определение времени: «в 13:00», «к 18», «в 9 утра», «в 6 вечера» ---
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function detectTime(text) {
+    const t = text.toLowerCase();
+    // ЧЧ:ММ (с необязательным предлогом)
+    let m = t.match(new RegExp('(?:в|во|к|ко|на)?\\s*(\\d{1,2}):(\\d{2})' + RB));
+    if (m) {
+      const h = +m[1], mi = +m[2];
+      if (h < 24 && mi < 60) return { time: pad2(h) + ':' + pad2(mi), matched: m[0].trim() };
+    }
+    // «в 13 часов», «в 9 утра», «в 6 вечера», «к 18»
+    m = t.match(new RegExp(LB + '(?:в|во|к|ко|на)\\s+(\\d{1,2})\\s*(час[а-яё]*|утра|вечера|дня|ночи)?' + RB));
+    if (m) {
+      let h = +m[1]; const suf = m[2] || '';
+      if (h <= 23) {
+        if (/вечера|дня/.test(suf) && h < 12) h += 12;
+        if (/ночи/.test(suf) && h === 12) h = 0;
+        return { time: pad2(h) + ':00', matched: m[0].trim() };
+      }
     }
     return null;
   }
@@ -203,7 +226,7 @@
   }
 
   // --- Чистим текст задачи от служебных слов ---
-  function cleanText(text, dateMatch, prioMatch, sections) {
+  function cleanText(text, dateMatch, prioMatch, sections, timeMatch) {
     let t = ' ' + text + ' ';
 
     // префикс «по <раздел>» (по основе: «по личному», «по работе»)
@@ -215,6 +238,7 @@
       }
     }
     if (dateMatch) t = t.replace(new RegExp('\\s*' + escapeRe(dateMatch) + '\\s*', 'i'), ' ');
+    if (timeMatch) t = t.replace(new RegExp('\\s*' + escapeRe(timeMatch) + '\\s*', 'i'), ' ');
     t = stripAll(t, PRIO_ALL);      // все маркеры важности, а не только сработавший
 
     t = stripAll(t, TAILS);         // хвосты «и так далее»
@@ -223,6 +247,10 @@
     t = stripAll(t, INTRO);         // вводные обороты («мне нужно», «у меня есть»)
     t = t.replace(/\s+/g, ' ');
     t = stripAll(t, FILLERS);       // второй проход (обороты могли обнажить паразитов)
+
+    // убрать сдвоенный глагол в начале: «сделать написать …» → «написать …»
+    const verbAlt = VERBS.join('[а-яё]*|') + '[а-яё]*';
+    t = t.replace(new RegExp('^\\s*(?:сдела[а-яё]+)\\s+(?=(?:' + verbAlt + ')' + RB + ')', 'i'), ' ');
 
     // подчистить осиротевшую пунктуацию и края
     t = t.replace(/\s+([,;:])/g, '$1').replace(/([,;:])\s*(?=[,;:])/g, '');
@@ -239,23 +267,27 @@
     const result = [];
     for (const chunk of chunks) {
       const dateRes = detectDate(chunk);
+      const timeRes = detectTime(chunk);
       const prioRes = detectPriority(chunk);
       const section = detectSection(chunk, sections) || defaultSection;
-      const text = cleanText(chunk, dateRes && dateRes.matched, prioRes.matched, sections);
+      const text = cleanText(chunk, dateRes && dateRes.matched, prioRes.matched, sections, timeRes && timeRes.matched);
       if (!text || text.length < 2) continue; // отбрасываем пустышки/мусор
-      result.push({ text, sectionId: section.id, priority: prioRes.priority, due: dateRes ? dateRes.iso : null });
+      const due = dateRes ? dateRes.iso : (timeRes ? toISO(today()) : null);
+      result.push({ text, sectionId: section.id, priority: prioRes.priority, due, time: timeRes ? timeRes.time : null });
     }
     if (result.length === 0) {
       const dateRes = detectDate(raw);
+      const timeRes = detectTime(raw);
       const prioRes = detectPriority(raw);
       const section = detectSection(raw, sections) || defaultSection;
-      const text = cleanText(raw.trim(), dateRes && dateRes.matched, prioRes.matched, sections) || raw.trim();
-      result.push({ text, sectionId: section.id, priority: prioRes.priority, due: dateRes ? dateRes.iso : null });
+      const text = cleanText(raw.trim(), dateRes && dateRes.matched, prioRes.matched, sections, timeRes && timeRes.matched) || raw.trim();
+      const due = dateRes ? dateRes.iso : (timeRes ? toISO(today()) : null);
+      result.push({ text, sectionId: section.id, priority: prioRes.priority, due, time: timeRes ? timeRes.time : null });
     }
     return result;
   }
 
-  global.Parser = { parse, detectDate, detectPriority, detectSection, splitTasks, stem };
+  global.Parser = { parse, detectDate, detectTime, detectPriority, detectSection, splitTasks, stem };
 })(typeof window !== 'undefined' ? window : globalThis);
 
 // Node (тесты): позволяем require('js/parser.js')

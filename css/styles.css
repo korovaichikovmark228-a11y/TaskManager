@@ -289,10 +289,12 @@ main {
 .ri-field { display: flex; flex-direction: column; gap: 5px; }
 .ri-section-field { flex: 1; min-width: 120px; }
 .ri-label { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.4px; }
-.ri-field select, .ri-field input[type="date"] {
+.ri-field select, .ri-field input[type="date"], .ri-field input[type="time"] {
   background: var(--bg); border: 1px solid var(--line); color: var(--text);
   border-radius: 10px; padding: 9px 10px; font-size: 14px; font-family: inherit; width: 100%;
 }
+.ri-field input[type="date"]::-webkit-calendar-picker-indicator,
+.ri-field input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
 .prio-seg { display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 2px; }
 .prio-pill {
   border: none; background: transparent; color: var(--text-dim);

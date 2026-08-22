@@ -145,6 +145,23 @@ if (multi.length === 4) {
   check('много[0]: без «дал задачу» в тексте', !/дал задачу|задачу/i.test(multi[0].text), multi[0].text);
 }
 
+/* ---------------- ВРЕМЯ ---------------- */
+eq('время: в 13:00', (Parser.detectTime('встреча в 13:00') || {}).time, '13:00');
+eq('время: к 18', (Parser.detectTime('позвонить к 18') || {}).time, '18:00');
+eq('время: в 9 утра', (Parser.detectTime('зайти в 9 утра') || {}).time, '09:00');
+eq('время: в 6 вечера', (Parser.detectTime('в 6 вечера') || {}).time, '18:00');
+check('время: нет времени → null', Parser.detectTime('просто задача') === null);
+const wt = Parser.parse('щас встретиться с девушкой будет в 13:00', SECTIONS);
+eq('парс+время: одна задача', wt.length, 1);
+if (wt.length === 1) {
+  eq('парс+время: time 13:00', wt[0].time, '13:00');
+  eq('парс+время: due = сегодня', wt[0].due, todayPlus(0));
+  check('парс+время: без «щас/будет/13:00» в тексте', !/щас|будет|13:00/i.test(wt[0].text), wt[0].text);
+  check('парс+время: раздел relationships', wt[0].sectionId === 'relationships');
+}
+eq('двойной глагол: «сделать написать» → без «сделать»',
+  Parser.parse('сделать написать два поста', SECTIONS)[0].text.toLowerCase().startsWith('написать'), true);
+
 /* ---------------- ИТОГ ---------------- */
 console.log(`\nПройдено: ${pass}, провалено: ${fail}`);
 if (fail) {

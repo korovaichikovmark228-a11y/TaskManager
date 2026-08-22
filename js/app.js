@@ -200,7 +200,10 @@
     const el = document.createElement('div');
     el.className = 'task' + (t.done ? ' done' : '');
     const due = formatDue(t.due);
-    const dueChip = due ? `<span class="chip due ${due.overdue && !t.done ? 'overdue' : ''}">📅 ${due.label}</span>` : '';
+    const timeLabel = t.time ? ` ⏰ ${t.time}` : '';
+    const dueChip = due
+      ? `<span class="chip due ${due.overdue && !t.done ? 'overdue' : ''}">📅 ${due.label}${timeLabel}</span>`
+      : (t.time ? `<span class="chip due">⏰ ${t.time}</span>` : '');
     const prioChip = t.priority !== 'medium'
       ? `<span class="chip prio-${t.priority}">${PRIO_LABEL[t.priority]}</span>` : '';
     el.innerHTML = `
@@ -287,13 +290,14 @@
     // 3) Офлайн-разбор по правилам — всегда доступный базис.
     if (!drafts) drafts = Parser.parse(raw, state.sections);
 
-    reviewItems = drafts.map((d) => ({
-      id: null,
-      text: d.text,
-      sectionId: d.sectionId,
-      priority: d.priority,
-      due: d.due,
-    }));
+    reviewItems = drafts.map((d) => {
+      let time = d.time || null;
+      let due = d.due || null;
+      // модель могла не выделить время — подстрахуемся детерминированным парсером
+      if (!time) { const tr = Parser.detectTime(d.text); if (tr) time = tr.time; }
+      if (time && !due) due = todayISO();
+      return { id: null, text: d.text, sectionId: d.sectionId, priority: d.priority, due, time };
+    });
     openReview();
   }
 
@@ -333,8 +337,12 @@
           <div class="prio-seg">${prioBtns}</div>
         </div>
         <label class="ri-field">
-          <span class="ri-label">Срок</span>
+          <span class="ri-label">Дата</span>
           <input class="rv-due" type="date" value="${item.due || ''}" />
+        </label>
+        <label class="ri-field">
+          <span class="ri-label">Время</span>
+          <input class="rv-time" type="time" value="${item.time || ''}" />
         </label>
       </div>`;
 
@@ -355,7 +363,18 @@
         el.querySelectorAll('.prio-pill').forEach((b) => b.classList.toggle('active', b === btn));
       };
     });
-    el.querySelector('.rv-due').onchange = (e) => { reviewItems[idx].due = e.target.value || null; };
+    el.querySelector('.rv-due').onchange = (e) => {
+      reviewItems[idx].due = e.target.value || null;
+      // если задали время, но не дату — подставим сегодня
+      if (reviewItems[idx].time && !reviewItems[idx].due) { reviewItems[idx].due = todayISO(); e.target.value = reviewItems[idx].due; }
+    };
+    el.querySelector('.rv-time').onchange = (e) => {
+      reviewItems[idx].time = e.target.value || null;
+      if (reviewItems[idx].time && !reviewItems[idx].due) {
+        reviewItems[idx].due = todayISO();
+        const dd = el.querySelector('.rv-due'); if (dd) dd.value = reviewItems[idx].due;
+      }
+    };
     el.querySelector('.ri-del').onclick = () => { reviewItems.splice(idx, 1); openReview(); };
     return el;
   }
@@ -371,6 +390,7 @@
           t.sectionId = item.sectionId;
           t.priority = item.priority;
           t.due = item.due || null;
+          t.time = item.time || null;
           await persistTask(t);
         }
       } else {
@@ -380,6 +400,7 @@
           sectionId: item.sectionId,
           priority: item.priority,
           due: item.due || null,
+          time: item.time || null,
           done: false,
           deleted: false,
           createdAt: nowISO(),
@@ -396,7 +417,7 @@
   function openEdit(id) {
     const t = state.tasks.find((x) => x.id === id);
     if (!t) return;
-    reviewItems = [{ id: t.id, text: t.text, sectionId: t.sectionId, priority: t.priority, due: t.due }];
+    reviewItems = [{ id: t.id, text: t.text, sectionId: t.sectionId, priority: t.priority, due: t.due, time: t.time || null }];
     openReview();
   }
 
