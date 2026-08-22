@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = 'v23'; // держим в синхроне с CACHE в sw.js
+  const APP_VERSION = 'v24'; // держим в синхроне с CACHE в sw.js
   const $ = (id) => document.getElementById(id);
   const uid = () => (crypto.randomUUID ? crypto.randomUUID()
     : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
@@ -992,7 +992,6 @@
     $('btnAddSection').onclick = addSection;
     $('btnLlmTest').onclick = testLlm;
     $('btnWebllmToggle').onclick = toggleWebllm;
-    $('modelLoading').onclick = () => setModelLoading(false); // тап по баннеру — скрыть
     $('setWebllmModel').onchange = async () => {
       // если модель включена, а выбрали другую — перегружаем
       if (state.settings.webllmEnabled) { await WebLLM.unload().catch(() => {}); await toggleWebllm(); }
