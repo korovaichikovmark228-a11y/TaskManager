@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = 'v30'; // держим в синхроне с CACHE в sw.js
+  const APP_VERSION = 'v31'; // держим в синхроне с CACHE в sw.js
   const $ = (id) => document.getElementById(id);
 
   // Показ любой ошибки прямо на экране (для диагностики на телефоне).

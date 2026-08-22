@@ -141,17 +141,18 @@ main {
 
 .check {
   flex: none;
-  width: 24px; height: 24px;
+  width: 30px; height: 30px;
   border-radius: 50%;
-  border: 2px solid var(--line);
-  background: transparent;
+  border: 2px solid var(--text-faint);
+  background: var(--bg-elev2);
   cursor: pointer;
   display: grid; place-items: center;
   margin-top: 1px;
   transition: all .15s;
-  color: transparent;
-  font-size: 14px;
+  color: var(--text-faint);   /* бледная галочка-подсказка «нажми — выполнено» */
+  font-size: 15px;
 }
+.check:active { transform: scale(0.9); border-color: var(--success); color: var(--success); }
 .task.done .check { background: var(--success); border-color: var(--success); color: #04120a; }
 
 .task-body { flex: 1; min-width: 0; }
