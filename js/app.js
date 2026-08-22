@@ -780,7 +780,9 @@
     if (loading) {
       dot.classList.add('load');
       txt.textContent = 'Загрузка модели…';
-      btn.disabled = true; btn.textContent = 'Загрузка…';
+      // кнопку НЕ блокируем — можно отменить/выключить прямо во время загрузки
+      btn.classList.remove('btn--primary'); btn.classList.add('btn--ghost');
+      btn.textContent = 'Отменить загрузку';
     } else if (enabled && ready) {
       dot.classList.add('on');
       txt.textContent = '✅ Включена — разбираю ИИ на устройстве';
@@ -799,10 +801,12 @@
 
   async function toggleWebllm() {
     if (!window.WebLLM || !WebLLM.isSupported()) { renderWebllmState(); return; }
-    // если уже включена и загружена — выключаем
-    if (state.settings.webllmEnabled && WebLLM.isReady()) {
+    // если идёт загрузка ИЛИ уже включена — выключаем/отменяем
+    if (state.settings.webllmEnabled || WebLLM.isLoading() || WebLLM.isReady()) {
       state.settings.webllmEnabled = false;
       await DB.setMeta('settings', state.settings);
+      setModelLoading(false);
+      $('webllmProgress').hidden = true;
       try { await WebLLM.unload(); } catch (e) {}
       renderWebllmState();
       toast('Модель выключена — разбор по правилам');
@@ -840,13 +844,17 @@
     const s = $('cloudStatus');
     const key = $('setCloudKey').value.trim();
     const url = $('setCloudUrl').value.trim() || 'https://openrouter.ai/api/v1';
+    const model = $('setCloudModel').value.trim() || 'google/gemma-4-31b-it:free';
     if (!key) { s.textContent = 'Вставьте API-ключ (получить бесплатно на openrouter.ai).'; s.className = 'auth-status err'; return; }
     s.textContent = 'Проверяю…'; s.className = 'auth-status';
     try {
-      await LLM.pingCloud({ url, apiKey: key });
+      await LLM.pingCloud({ url, apiKey: key, model });
       s.textContent = 'Связь и ключ в порядке. Онлайн-разбор включён.';
       s.className = 'auth-status ok';
-      state.settings.cloudEnabled = true; $('setCloudEnabled').checked = true;
+      // сохраняем ключ и включаем облако
+      state.settings.cloudKey = key; state.settings.cloudModel = model; state.settings.cloudEnabled = true;
+      $('setCloudEnabled').checked = true;
+      await DB.setMeta('settings', state.settings);
     } catch (e) {
       s.textContent = 'Не удалось подключиться: ' + (e.message || e);
       s.className = 'auth-status err';

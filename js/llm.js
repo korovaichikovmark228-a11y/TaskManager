@@ -165,10 +165,10 @@
   };
 
   function chatHeaders(apiKey) {
+    // Только простые заголовки — иначе кастомные (HTTP-Referer/X-Title) ломают
+    // CORS-preflight из браузера (fetch падает с TypeError).
     const h = { 'Content-Type': 'application/json' };
     if (apiKey) h['Authorization'] = 'Bearer ' + apiKey.trim();
-    // необязательные для OpenRouter — не мешают другим провайдерам
-    try { h['HTTP-Referer'] = location.origin; h['X-Title'] = 'Задачи'; } catch (e) {}
     return h;
   }
 
@@ -210,19 +210,27 @@
     return drafts;
   }
 
-  // Проверка связи и ключа (для настроек): короткий запрос к /models.
+  // Проверка связи и ключа (для настроек): тот же путь, что и реальный разбор
+  // (минимальный chat/completions), чтобы гарантировать, что и разбор пройдёт.
   async function pingCloud(opts) {
     opts = opts || {};
     const url = normUrl(opts.url || CLOUD_DEFAULTS.url);
+    const model = (opts.model || CLOUD_DEFAULTS.model).trim();
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let resp;
     try {
-      const resp = await fetch(url + '/models', { headers: chatHeaders(opts.apiKey), signal: controller.signal });
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      return { ok: true };
-    } finally {
-      clearTimeout(timer);
+      resp = await fetch(url + '/chat/completions', {
+        method: 'POST', headers: chatHeaders(opts.apiKey), signal: controller.signal,
+        body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ok' }], max_tokens: 1 }),
+      });
+    } finally { clearTimeout(timer); }
+    if (!resp.ok) {
+      let msg = 'HTTP ' + resp.status;
+      try { const e = await resp.json(); if (e.error && e.error.message) msg = e.error.message; } catch (e) {}
+      throw new Error(msg);
     }
+    return { ok: true };
   }
 
   global.LLM = { parse, ping, parseCloud, pingCloud, DEFAULTS, CLOUD_DEFAULTS };
