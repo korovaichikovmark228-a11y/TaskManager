@@ -155,5 +155,72 @@
     }
   }
 
-  global.LLM = { parse, ping, DEFAULTS };
+  // ===== Облачная модель (OpenAI-совместимый API: OpenRouter, Groq и т.п.) =====
+  const CLOUD_DEFAULTS = {
+    url: 'https://openrouter.ai/api/v1',
+    model: 'meta-llama/llama-3.3-70b-instruct:free',
+  };
+
+  function chatHeaders(apiKey) {
+    const h = { 'Content-Type': 'application/json' };
+    if (apiKey) h['Authorization'] = 'Bearer ' + apiKey.trim();
+    // необязательные для OpenRouter — не мешают другим провайдерам
+    try { h['HTTP-Referer'] = location.origin; h['X-Title'] = 'Задачи'; } catch (e) {}
+    return h;
+  }
+
+  /* Разбор через облачную модель. opts: {url, apiKey, model, timeoutMs} */
+  async function parseCloud(raw, sections, opts) {
+    opts = opts || {};
+    const url = normUrl(opts.url || CLOUD_DEFAULTS.url);
+    const model = (opts.model || CLOUD_DEFAULTS.model).trim();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), opts.timeoutMs || 30000);
+    let resp;
+    try {
+      resp = await fetch(url + '/chat/completions', {
+        method: 'POST',
+        headers: chatHeaders(opts.apiKey),
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: 'Ты — парсер задач. Отвечай СТРОГО одним JSON-объектом, без пояснений.' },
+            { role: 'user', content: buildPrompt(raw, sections) },
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.1,
+        }),
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!resp.ok) {
+      let msg = 'HTTP ' + resp.status;
+      try { const e = await resp.json(); if (e.error && e.error.message) msg = e.error.message; } catch (e) {}
+      throw new Error(msg);
+    }
+    const data = await resp.json();
+    const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    const drafts = normalize(extractJson(content), sections, raw);
+    if (drafts.length === 0) throw new Error('Модель вернула пустой разбор');
+    return drafts;
+  }
+
+  // Проверка связи и ключа (для настроек): короткий запрос к /models.
+  async function pingCloud(opts) {
+    opts = opts || {};
+    const url = normUrl(opts.url || CLOUD_DEFAULTS.url);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const resp = await fetch(url + '/models', { headers: chatHeaders(opts.apiKey), signal: controller.signal });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return { ok: true };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  global.LLM = { parse, ping, parseCloud, pingCloud, DEFAULTS, CLOUD_DEFAULTS };
 })(window);

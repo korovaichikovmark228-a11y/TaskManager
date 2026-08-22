@@ -162,6 +162,28 @@
       </section>
 
       <section class="settings-block">
+        <h3>Умный разбор онлайн (облачная модель)</h3>
+        <p class="hint">Работает при наличии интернета — понимает свободную речь по-настоящему. Бесплатно на бесплатных моделях. Получите ключ на openrouter.ai (без карты), вставьте ниже. Офлайн — автоматически разбор по правилам.</p>
+        <label class="switch-row">
+          <input id="setCloudEnabled" type="checkbox" />
+          <span>Использовать облачную модель, когда есть интернет</span>
+        </label>
+        <label class="stack">API-ключ
+          <input id="setCloudKey" class="text" type="password" placeholder="sk-or-..." autocomplete="off" />
+        </label>
+        <label class="stack">Адрес API
+          <input id="setCloudUrl" class="text" type="url" placeholder="https://openrouter.ai/api/v1" />
+        </label>
+        <label class="stack">Модель
+          <input id="setCloudModel" class="text" type="text" placeholder="meta-llama/llama-3.3-70b-instruct:free" />
+        </label>
+        <div class="row2">
+          <button id="btnCloudTest" class="btn btn--ghost">Проверить связь</button>
+        </div>
+        <div id="cloudStatus" class="auth-status"></div>
+      </section>
+
+      <section class="settings-block">
         <h3>Умный разбор (Ollama, на своём сервере)</h3>
         <p class="hint">Необязательно. Точнее делит длинный ввод на задачи и определяет раздел/срок через локальную модель Ollama на вашем компьютере или сервере — бесплатно, без внешних API. Если модель недоступна, приложение автоматически использует разбор по правилам.</p>
         <label class="switch-row">

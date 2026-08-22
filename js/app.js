@@ -32,7 +32,9 @@
     filter: 'all', // 'all' | 'today' | 'overdue'
     settings: { workMin: 25, breakMin: 5, sbUrl: '', sbKey: '', sound: 'lofi', volume: 45,
       llmEnabled: false, llmUrl: 'http://localhost:11434', llmModel: 'llama3.2',
-      webllmEnabled: false, webllmModel: 'qwen2.5-1.5b' },
+      webllmEnabled: false, webllmModel: 'qwen2.5-1.5b',
+      cloudEnabled: false, cloudUrl: 'https://openrouter.ai/api/v1',
+      cloudModel: 'meta-llama/llama-3.3-70b-instruct:free', cloudKey: '' },
   };
 
   const todayISO = () => {
@@ -282,7 +284,20 @@
       }
     }
 
-    // 2) Умный разбор через Ollama/облако (если настроено и есть сеть).
+    // 2) Умный разбор облачной моделью (когда есть интернет).
+    if (!drafts && state.settings.cloudEnabled && state.settings.cloudKey && navigator.onLine && window.LLM) {
+      toast('Разбор ИИ…');
+      try {
+        drafts = await LLM.parseCloud(raw, state.sections, {
+          url: state.settings.cloudUrl, apiKey: state.settings.cloudKey, model: state.settings.cloudModel,
+        });
+      } catch (e) {
+        console.warn('Cloud LLM failed, fallback:', e);
+        toast('Облако недоступно — разбор по правилам');
+      }
+    }
+
+    // 3) Умный разбор через Ollama (если настроено и есть сеть).
     if (!drafts && state.settings.llmEnabled && window.LLM) {
       toast('Разбор ИИ…');
       try {
@@ -295,7 +310,7 @@
       }
     }
 
-    // 3) Офлайн-разбор по правилам — всегда доступный базис.
+    // 4) Офлайн-разбор по правилам — всегда доступный базис.
     if (!drafts) drafts = Parser.parse(raw, state.sections);
 
     reviewItems = drafts.map((d) => {
@@ -567,6 +582,11 @@
     $('llmStatus').className = 'auth-status';
     $('setWebllmEnabled').checked = !!state.settings.webllmEnabled;
     $('setWebllmModel').value = state.settings.webllmModel || 'qwen2.5-1.5b';
+    $('setCloudEnabled').checked = !!state.settings.cloudEnabled;
+    $('setCloudKey').value = state.settings.cloudKey || '';
+    $('setCloudUrl').value = state.settings.cloudUrl || 'https://openrouter.ai/api/v1';
+    $('setCloudModel').value = state.settings.cloudModel || 'meta-llama/llama-3.3-70b-instruct:free';
+    $('cloudStatus').textContent = ''; $('cloudStatus').className = 'auth-status';
     $('webllmStatus').textContent = window.WebLLM && WebLLM.isReady() ? 'Модель загружена и готова.'
       : (window.WebLLM && WebLLM.isSupported() ? '' : 'WebGPU не поддерживается — будет разбор по правилам.');
     $('webllmStatus').className = 'auth-status' + (window.WebLLM && WebLLM.isReady() ? ' ok' : '');
@@ -671,6 +691,10 @@
     state.settings.llmModel = $('setLlmModel').value.trim() || 'llama3.2';
     state.settings.webllmEnabled = $('setWebllmEnabled').checked;
     state.settings.webllmModel = $('setWebllmModel').value || 'qwen2.5-1.5b';
+    state.settings.cloudEnabled = $('setCloudEnabled').checked;
+    state.settings.cloudKey = $('setCloudKey').value.trim();
+    state.settings.cloudUrl = $('setCloudUrl').value.trim() || 'https://openrouter.ai/api/v1';
+    state.settings.cloudModel = $('setCloudModel').value.trim() || 'meta-llama/llama-3.3-70b-instruct:free';
     const newUrl = $('setSbUrl').value.trim();
     const newKey = $('setSbKey').value.trim();
     const changed = newUrl !== state.settings.sbUrl || newKey !== state.settings.sbKey;
@@ -738,6 +762,23 @@
     } finally {
       $('btnWebllmLoad').disabled = false;
       setTimeout(() => { prog.hidden = true; }, 1500);
+    }
+  }
+
+  async function testCloud() {
+    const s = $('cloudStatus');
+    const key = $('setCloudKey').value.trim();
+    const url = $('setCloudUrl').value.trim() || 'https://openrouter.ai/api/v1';
+    if (!key) { s.textContent = 'Вставьте API-ключ (получить бесплатно на openrouter.ai).'; s.className = 'auth-status err'; return; }
+    s.textContent = 'Проверяю…'; s.className = 'auth-status';
+    try {
+      await LLM.pingCloud({ url, apiKey: key });
+      s.textContent = 'Связь и ключ в порядке. Онлайн-разбор включён.';
+      s.className = 'auth-status ok';
+      state.settings.cloudEnabled = true; $('setCloudEnabled').checked = true;
+    } catch (e) {
+      s.textContent = 'Не удалось подключиться: ' + (e.message || e);
+      s.className = 'auth-status err';
     }
   }
 
@@ -878,6 +919,7 @@
     $('btnAddSection').onclick = addSection;
     $('btnLlmTest').onclick = testLlm;
     $('btnWebllmLoad').onclick = loadWebllm;
+    $('btnCloudTest').onclick = testCloud;
 
     // фокус
     $('focusClose').onclick = closeFocus;
