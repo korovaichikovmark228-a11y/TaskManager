@@ -3,7 +3,7 @@
    свежую версию (иначе PWA застревает на старой), офлайн — из кэша.
    Библиотека WebLLM с CDN — stale-while-revalidate в отдельный кэш.
    Supabase/Ollama и прочее — напрямую в сеть. */
-const CACHE = 'tasks-app-v22';
+const CACHE = 'tasks-app-v23';
 const CDN_CACHE = 'tasks-cdn-v1';
 const ASSETS = [
   './',

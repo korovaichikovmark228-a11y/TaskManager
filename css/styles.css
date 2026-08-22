@@ -226,6 +226,15 @@ main {
   100% { box-shadow: 0 0 0 0 rgba(255,92,92,0); }
 }
 
+/* ---------- App version label ---------- */
+.app-version {
+  position: fixed; left: 0; right: 0;
+  bottom: calc(92px + var(--safe-bottom));
+  text-align: center; font-size: 10px; letter-spacing: 0.5px;
+  color: var(--text-faint); opacity: 0.45; z-index: 25;
+  pointer-events: none;
+}
+
 /* ---------- Model loading banner ---------- */
 .model-loading {
   position: fixed; left: 50%; transform: translateX(-50%);

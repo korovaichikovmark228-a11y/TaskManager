@@ -5,6 +5,7 @@
 (function () {
   'use strict';
 
+  const APP_VERSION = 'v23'; // держим в синхроне с CACHE в sw.js
   const $ = (id) => document.getElementById(id);
   const uid = () => (crypto.randomUUID ? crypto.randomUUID()
     : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
@@ -96,6 +97,8 @@
     window.addEventListener('offline', () => updateSyncBadge());
     // Модель на устройстве НЕ грузим автоматически на старте — только по
     // явному «Включить модель» в настройках. Так плашка не появляется сама.
+    setModelLoading(false); // на всякий случай гасим баннер при запуске
+    const ver = $('appVersion'); if (ver) ver.textContent = APP_VERSION;
   }
 
   /* ---------------- РЕНДЕР СПИСКА ---------------- */
@@ -728,11 +731,15 @@
   }
 
   // Глобальный баннер загрузки модели (виден на любом экране).
+  let modelLoadingTimer = null;
   function setModelLoading(show, text) {
     const el = $('modelLoading');
     if (!el) return;
     if (text) $('modelLoadingText').textContent = text;
     el.hidden = !show;
+    clearTimeout(modelLoadingTimer);
+    // страховка: баннер не может висеть дольше 60 сек ни при каких условиях
+    if (show) modelLoadingTimer = setTimeout(() => { el.hidden = true; }, 60000);
   }
   // Единый колбэк прогресса: обновляет баннер и полосу в настройках.
   function webllmProgress(p) {
