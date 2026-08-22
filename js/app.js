@@ -34,7 +34,7 @@
       llmEnabled: false, llmUrl: 'http://localhost:11434', llmModel: 'llama3.2',
       webllmEnabled: false, webllmModel: 'qwen2.5-0.5b',
       cloudEnabled: false, cloudUrl: 'https://openrouter.ai/api/v1',
-      cloudModel: 'meta-llama/llama-3.3-70b-instruct:free', cloudKey: '' },
+      cloudModel: 'google/gemma-4-31b-it:free', cloudKey: '' },
   };
 
   const todayISO = () => {
@@ -72,6 +72,11 @@
     // настройки
     const saved = await DB.getMeta('settings', null);
     if (saved) state.settings = Object.assign(state.settings, saved);
+    // миграция: старая бесплатная модель убрана из OpenRouter — переводим на рабочую
+    if (state.settings.cloudModel === 'meta-llama/llama-3.3-70b-instruct:free') {
+      state.settings.cloudModel = 'google/gemma-4-31b-it:free';
+      await DB.setMeta('settings', state.settings);
+    }
     // задачи
     state.tasks = (await DB.getTasks()).filter((t) => !t.deleted);
 
@@ -593,7 +598,7 @@
     $('setCloudEnabled').checked = !!state.settings.cloudEnabled;
     $('setCloudKey').value = state.settings.cloudKey || '';
     $('setCloudUrl').value = state.settings.cloudUrl || 'https://openrouter.ai/api/v1';
-    $('setCloudModel').value = state.settings.cloudModel || 'meta-llama/llama-3.3-70b-instruct:free';
+    $('setCloudModel').value = state.settings.cloudModel || 'google/gemma-4-31b-it:free';
     $('cloudStatus').textContent = ''; $('cloudStatus').className = 'auth-status';
     updateAuthBox();
     $('settingsOverlay').hidden = false;
@@ -699,7 +704,7 @@
     state.settings.cloudEnabled = $('setCloudEnabled').checked;
     state.settings.cloudKey = $('setCloudKey').value.trim();
     state.settings.cloudUrl = $('setCloudUrl').value.trim() || 'https://openrouter.ai/api/v1';
-    state.settings.cloudModel = $('setCloudModel').value.trim() || 'meta-llama/llama-3.3-70b-instruct:free';
+    state.settings.cloudModel = $('setCloudModel').value.trim() || 'google/gemma-4-31b-it:free';
     const newUrl = $('setSbUrl').value.trim();
     const newKey = $('setSbKey').value.trim();
     const changed = newUrl !== state.settings.sbUrl || newKey !== state.settings.sbKey;

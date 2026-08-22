@@ -41,7 +41,7 @@
       'Доступные разделы (используй только эти id):',
       secLines,
       '',
-      `Сегодня: ${todayISO()} (${weekdayName()}). Срок "due" отдавай строго в формате YYYY-MM-DD или null.`,
+      `Сегодня: ${todayISO()} (${weekdayName()}). Срок "due": YYYY-MM-DD, либо YYYY-MM-DDTHH:MM если названо время, либо null.`,
       'Важность "priority": "high" (срочно/важно/горит), "low" (не срочно/когда-нибудь) или "medium" (по умолчанию).',
       'В "text" оставляй только суть задачи, без служебных слов ("мне нужно", "по работе", названия срока).',
       'Если раздел неочевиден — выбери наиболее подходящий по смыслу.',
@@ -77,18 +77,19 @@
       }
       let priority = it.priority;
       if (priority !== 'high' && priority !== 'low' && priority !== 'medium') priority = 'medium';
-      let due = it.due;
-      if (typeof due !== 'string' || !ISO_RE.test(due)) {
-        // подстрахуемся детерминированным парсером: сперва пробуем разобрать
-        // саму строку (модель могла вернуть «завтра»), затем — текст задачи
-        let d = null;
-        if (global.Parser) {
-          if (typeof due === 'string' && due.trim()) d = Parser.detectDate(due);
-          if (!d) d = Parser.detectDate(text);
-        }
-        due = d ? d.iso : null;
+      // due может прийти как «YYYY-MM-DD» или «YYYY-MM-DDTHH:MM» — разбираем оба
+      let due = null, time = null;
+      if (typeof it.due === 'string') {
+        const m = it.due.match(/^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+        if (m) { due = m[1]; if (m[2]) time = m[2] + ':' + m[3]; }
       }
-      out.push({ text, sectionId, priority, due });
+      if (typeof it.time === 'string' && !time) { const tm = it.time.match(/(\d{1,2}):(\d{2})/); if (tm) time = tm[1].padStart(2, '0') + ':' + tm[2]; }
+      // подстраховка детерминированным парсером (модель могла сказать «завтра»)
+      if (global.Parser) {
+        if (!due) { const d = (typeof it.due === 'string' && Parser.detectDate(it.due)) || Parser.detectDate(text); if (d) due = d.iso; }
+        if (!time) { const t = Parser.detectTime(text); if (t) time = t.time; }
+      }
+      out.push({ text, sectionId, priority, due, time });
     }
     return out;
   }
@@ -160,7 +161,7 @@
   // ===== Облачная модель (OpenAI-совместимый API: OpenRouter, Groq и т.п.) =====
   const CLOUD_DEFAULTS = {
     url: 'https://openrouter.ai/api/v1',
-    model: 'meta-llama/llama-3.3-70b-instruct:free',
+    model: 'google/gemma-4-31b-it:free',
   };
 
   function chatHeaders(apiKey) {

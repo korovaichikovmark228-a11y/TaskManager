@@ -71,7 +71,7 @@
       'Разделы (используй только эти id):',
       secLines,
       '',
-      `Сегодня ${todayISO}. "due" — строго YYYY-MM-DD или null.`,
+      `Сегодня ${todayISO}. "due": YYYY-MM-DD, либо YYYY-MM-DDTHH:MM если названо время, либо null.`,
       '"priority": "high" (срочно/важно/горит), "low" (не срочно/потом/низкий), иначе "medium".',
       'Верни ТОЛЬКО JSON: {"tasks":[{"text":"...","section_id":"...","priority":"medium","due":null}]}',
     ].join('\n');
@@ -109,16 +109,17 @@
       }
       let priority = it.priority;
       if (priority !== 'high' && priority !== 'low' && priority !== 'medium') priority = 'medium';
-      let due = it.due;
-      if (typeof due !== 'string' || !ISO_RE.test(due)) {
-        let dd = null;
-        if (global.Parser) {
-          if (typeof due === 'string' && due.trim()) dd = Parser.detectDate(due);
-          if (!dd) dd = Parser.detectDate(text);
-        }
-        due = dd ? dd.iso : null;
+      let due = null, time = null;
+      if (typeof it.due === 'string') {
+        const m = it.due.match(/^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+        if (m) { due = m[1]; if (m[2]) time = m[2] + ':' + m[3]; }
       }
-      out.push({ text, sectionId, priority, due });
+      if (typeof it.time === 'string' && !time) { const tm = it.time.match(/(\d{1,2}):(\d{2})/); if (tm) time = tm[1].padStart(2, '0') + ':' + tm[2]; }
+      if (global.Parser) {
+        if (!due) { const dd = (typeof it.due === 'string' && Parser.detectDate(it.due)) || Parser.detectDate(text); if (dd) due = dd.iso; }
+        if (!time) { const t = Parser.detectTime(text); if (t) time = t.time; }
+      }
+      out.push({ text, sectionId, priority, due, time });
     }
     return out;
   }
