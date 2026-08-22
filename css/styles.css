@@ -415,6 +415,11 @@ main {
 .switch-row input[type="checkbox"] {
   width: 20px; height: 20px; accent-color: var(--accent); flex: none; cursor: pointer;
 }
+.webllm-progress {
+  height: 8px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; overflow: hidden; margin: 10px 0 6px;
+}
+.webllm-bar { height: 100%; width: 0%; background: var(--accent); transition: width .3s; }
 .auth-box { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
 .auth-status { font-size: 13px; color: var(--text-dim); min-height: 18px; }
 .auth-status.ok { color: var(--success); }

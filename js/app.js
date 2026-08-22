@@ -31,7 +31,8 @@
     tasks: [],
     filter: 'all', // 'all' | 'today' | 'overdue'
     settings: { workMin: 25, breakMin: 5, sbUrl: '', sbKey: '', sound: 'lofi', volume: 45,
-      llmEnabled: false, llmUrl: 'http://localhost:11434', llmModel: 'llama3.2' },
+      llmEnabled: false, llmUrl: 'http://localhost:11434', llmModel: 'llama3.2',
+      webllmEnabled: false, webllmModel: 'qwen2.5-1.5b' },
   };
 
   const todayISO = () => {
@@ -86,6 +87,12 @@
     updateSyncBadge();
     window.addEventListener('online', () => { updateSyncBadge(); if (Sync.currentUser()) doSync(true); });
     window.addEventListener('offline', () => updateSyncBadge());
+
+    // Предзагрузка модели на устройстве (из кэша — быстро; иначе тихо ждёт),
+    // чтобы умный разбор был готов, в т.ч. офлайн.
+    if (state.settings.webllmEnabled && window.WebLLM && WebLLM.isSupported()) {
+      WebLLM.load(state.settings.webllmModel).catch((e) => console.warn('WebLLM preload:', e));
+    }
   }
 
   /* ---------------- РЕНДЕР СПИСКА ---------------- */
@@ -250,9 +257,22 @@
     if (!raw) return;
     let drafts = null;
 
-    // Опционально: умный разбор локальной LLM (Ollama). При любой ошибке
-    // или недоступности сервера — тихо откатываемся на rule-based парсер.
-    if (state.settings.llmEnabled && window.LLM) {
+    // 1) Умный разбор моделью на устройстве (WebLLM). Работает офлайн.
+    if (!drafts && state.settings.webllmEnabled && window.WebLLM && WebLLM.isSupported()) {
+      try {
+        if (!WebLLM.isReady()) {
+          toast('Загружаю модель… (первый раз дольше)');
+          await WebLLM.load(state.settings.webllmModel);
+        }
+        toast('Разбор ИИ на устройстве…');
+        drafts = await WebLLM.parse(raw, state.sections);
+      } catch (e) {
+        console.warn('WebLLM parse failed, fallback:', e);
+      }
+    }
+
+    // 2) Умный разбор через Ollama/облако (если настроено и есть сеть).
+    if (!drafts && state.settings.llmEnabled && window.LLM) {
       toast('Разбор ИИ…');
       try {
         drafts = await LLM.parse(raw, state.sections, {
@@ -261,9 +281,10 @@
         });
       } catch (e) {
         console.warn('LLM parse failed, fallback to rules:', e);
-        toast('ИИ недоступен — разобрал по правилам');
       }
     }
+
+    // 3) Офлайн-разбор по правилам — всегда доступный базис.
     if (!drafts) drafts = Parser.parse(raw, state.sections);
 
     reviewItems = drafts.map((d) => ({
@@ -510,6 +531,11 @@
     $('setLlmModel').value = state.settings.llmModel || 'llama3.2';
     $('llmStatus').textContent = '';
     $('llmStatus').className = 'auth-status';
+    $('setWebllmEnabled').checked = !!state.settings.webllmEnabled;
+    $('setWebllmModel').value = state.settings.webllmModel || 'qwen2.5-1.5b';
+    $('webllmStatus').textContent = window.WebLLM && WebLLM.isReady() ? 'Модель загружена и готова.'
+      : (window.WebLLM && WebLLM.isSupported() ? '' : 'WebGPU не поддерживается — будет разбор по правилам.');
+    $('webllmStatus').className = 'auth-status' + (window.WebLLM && WebLLM.isReady() ? ' ok' : '');
     updateAuthBox();
     $('settingsOverlay').hidden = false;
   }
@@ -609,6 +635,8 @@
     state.settings.llmEnabled = $('setLlmEnabled').checked;
     state.settings.llmUrl = $('setLlmUrl').value.trim() || 'http://localhost:11434';
     state.settings.llmModel = $('setLlmModel').value.trim() || 'llama3.2';
+    state.settings.webllmEnabled = $('setWebllmEnabled').checked;
+    state.settings.webllmModel = $('setWebllmModel').value || 'qwen2.5-1.5b';
     const newUrl = $('setSbUrl').value.trim();
     const newKey = $('setSbKey').value.trim();
     const changed = newUrl !== state.settings.sbUrl || newKey !== state.settings.sbKey;
@@ -642,6 +670,40 @@
     } catch (e) {
       s.textContent = 'Нет связи с Ollama. Проверьте, что сервер запущен и разрешён CORS (OLLAMA_ORIGINS).';
       s.className = 'auth-status err';
+    }
+  }
+
+  async function loadWebllm() {
+    const s = $('webllmStatus');
+    if (!window.WebLLM || !WebLLM.isSupported()) {
+      s.textContent = 'WebGPU не поддерживается этим браузером. Нужен iOS 18+ / современный Chrome. Пока — разбор по правилам.';
+      s.className = 'auth-status err';
+      return;
+    }
+    const modelKey = $('setWebllmModel').value || 'qwen2.5-1.5b';
+    const bar = $('webllmBar'); const prog = $('webllmProgress');
+    prog.hidden = false; bar.style.width = '0%';
+    s.textContent = 'Загрузка модели… (первый раз — несколько минут, потом из кэша)';
+    s.className = 'auth-status';
+    $('btnWebllmLoad').disabled = true;
+    try {
+      await WebLLM.load(modelKey, (p) => {
+        bar.style.width = Math.round((p.progress || 0) * 100) + '%';
+        if (p.text) s.textContent = p.text;
+      });
+      bar.style.width = '100%';
+      s.textContent = 'Готово! Модель загружена — умный разбор работает офлайн.';
+      s.className = 'auth-status ok';
+      state.settings.webllmEnabled = true;
+      $('setWebllmEnabled').checked = true;
+      await DB.setMeta('settings', state.settings);
+    } catch (e) {
+      console.error(e);
+      s.textContent = 'Не удалось загрузить модель: ' + (e.message || e) + '. Разбор пойдёт по правилам.';
+      s.className = 'auth-status err';
+    } finally {
+      $('btnWebllmLoad').disabled = false;
+      setTimeout(() => { prog.hidden = true; }, 1500);
     }
   }
 
@@ -781,6 +843,7 @@
     $('settingsSave').onclick = saveSettings;
     $('btnAddSection').onclick = addSection;
     $('btnLlmTest').onclick = testLlm;
+    $('btnWebllmLoad').onclick = loadWebllm;
 
     // фокус
     $('focusClose').onclick = closeFocus;

@@ -141,7 +141,28 @@
       </section>
 
       <section class="settings-block">
-        <h3>Умный разбор (локальная LLM)</h3>
+        <h3>Умный разбор на устройстве (WebLLM)</h3>
+        <p class="hint">Настоящая нейросеть прямо в браузере — работает офлайн после первой загрузки модели. Бесплатно, данные никуда не уходят. Нужен современный браузер с WebGPU (iOS 18+). Первая загрузка модели ~0,5–1 ГБ (потом из кэша). Если модель не загружена или WebGPU нет — используется разбор по правилам.</p>
+        <label class="switch-row">
+          <input id="setWebllmEnabled" type="checkbox" />
+          <span>Использовать модель на устройстве</span>
+        </label>
+        <label class="stack">Модель
+          <select id="setWebllmModel" class="select">
+            <option value="qwen2.5-0.5b">Qwen2.5 0.5B — лёгкая (~0,6 ГБ)</option>
+            <option value="qwen2.5-1.5b">Qwen2.5 1.5B — точнее (~1,2 ГБ)</option>
+            <option value="llama3.2-1b">Llama 3.2 1B (~1 ГБ)</option>
+          </select>
+        </label>
+        <div class="row2">
+          <button id="btnWebllmLoad" class="btn btn--primary">Загрузить модель</button>
+        </div>
+        <div id="webllmProgress" class="webllm-progress" hidden><div id="webllmBar" class="webllm-bar"></div></div>
+        <div id="webllmStatus" class="auth-status"></div>
+      </section>
+
+      <section class="settings-block">
+        <h3>Умный разбор (Ollama, на своём сервере)</h3>
         <p class="hint">Необязательно. Точнее делит длинный ввод на задачи и определяет раздел/срок через локальную модель Ollama на вашем компьютере или сервере — бесплатно, без внешних API. Если модель недоступна, приложение автоматически использует разбор по правилам.</p>
         <label class="switch-row">
           <input id="setLlmEnabled" type="checkbox" />
@@ -205,6 +226,7 @@
   <script src="js/db.js"></script>
   <script src="js/parser.js"></script>
   <script src="js/llm.js"></script>
+  <script src="js/webllm.js"></script>
   <script src="js/speech.js"></script>
   <script src="js/focus.js"></script>
   <script src="js/sync.js"></script>
