@@ -32,7 +32,7 @@
     filter: 'all', // 'all' | 'today' | 'overdue'
     settings: { workMin: 25, breakMin: 5, sbUrl: '', sbKey: '', sound: 'lofi', volume: 45,
       llmEnabled: false, llmUrl: 'http://localhost:11434', llmModel: 'llama3.2',
-      webllmEnabled: false, webllmModel: 'qwen2.5-1.5b',
+      webllmEnabled: false, webllmModel: 'qwen2.5-0.5b',
       cloudEnabled: false, cloudUrl: 'https://openrouter.ai/api/v1',
       cloudModel: 'meta-llama/llama-3.3-70b-instruct:free', cloudKey: '' },
   };
@@ -585,16 +585,13 @@
     $('setLlmModel').value = state.settings.llmModel || 'llama3.2';
     $('llmStatus').textContent = '';
     $('llmStatus').className = 'auth-status';
-    $('setWebllmEnabled').checked = !!state.settings.webllmEnabled;
-    $('setWebllmModel').value = state.settings.webllmModel || 'qwen2.5-1.5b';
+    $('setWebllmModel').value = state.settings.webllmModel || 'qwen2.5-0.5b';
+    renderWebllmState();
     $('setCloudEnabled').checked = !!state.settings.cloudEnabled;
     $('setCloudKey').value = state.settings.cloudKey || '';
     $('setCloudUrl').value = state.settings.cloudUrl || 'https://openrouter.ai/api/v1';
     $('setCloudModel').value = state.settings.cloudModel || 'meta-llama/llama-3.3-70b-instruct:free';
     $('cloudStatus').textContent = ''; $('cloudStatus').className = 'auth-status';
-    $('webllmStatus').textContent = window.WebLLM && WebLLM.isReady() ? 'Модель загружена и готова.'
-      : (window.WebLLM && WebLLM.isSupported() ? '' : 'WebGPU не поддерживается — будет разбор по правилам.');
-    $('webllmStatus').className = 'auth-status' + (window.WebLLM && WebLLM.isReady() ? ' ok' : '');
     updateAuthBox();
     $('settingsOverlay').hidden = false;
   }
@@ -694,8 +691,8 @@
     state.settings.llmEnabled = $('setLlmEnabled').checked;
     state.settings.llmUrl = $('setLlmUrl').value.trim() || 'http://localhost:11434';
     state.settings.llmModel = $('setLlmModel').value.trim() || 'llama3.2';
-    state.settings.webllmEnabled = $('setWebllmEnabled').checked;
-    state.settings.webllmModel = $('setWebllmModel').value || 'qwen2.5-1.5b';
+    // webllmEnabled управляется кнопкой-переключателем (toggleWebllm), не здесь
+    state.settings.webllmModel = $('setWebllmModel').value || 'qwen2.5-0.5b';
     state.settings.cloudEnabled = $('setCloudEnabled').checked;
     state.settings.cloudKey = $('setCloudKey').value.trim();
     state.settings.cloudUrl = $('setCloudUrl').value.trim() || 'https://openrouter.ai/api/v1';
@@ -736,37 +733,83 @@
     }
   }
 
-  async function loadWebllm() {
-    const s = $('webllmStatus');
-    if (!window.WebLLM || !WebLLM.isSupported()) {
-      s.textContent = 'WebGPU не поддерживается этим браузером. Нужен iOS 18+ / современный Chrome. Пока — разбор по правилам.';
-      s.className = 'auth-status err';
+  // Единый рендер состояния модели: цветной индикатор + подпись + кнопка.
+  function renderWebllmState() {
+    const dot = document.querySelector('#webllmState .engine-dot');
+    const txt = $('webllmStateText');
+    const btn = $('btnWebllmToggle');
+    if (!dot || !txt || !btn) return;
+    const supported = !!(window.WebLLM && WebLLM.isSupported());
+    const ready = !!(window.WebLLM && WebLLM.isReady());
+    const loading = !!(window.WebLLM && WebLLM.isLoading());
+    const enabled = !!state.settings.webllmEnabled;
+    dot.className = 'engine-dot';
+    btn.disabled = false;
+    btn.classList.remove('btn--ghost'); btn.classList.add('btn--primary');
+    if (!supported) {
+      dot.classList.add('err');
+      txt.textContent = 'Не поддерживается (нет WebGPU) — работают правила';
+      btn.style.display = 'none';
       return;
     }
-    const modelKey = $('setWebllmModel').value || 'qwen2.5-1.5b';
+    btn.style.display = '';
+    if (loading) {
+      dot.classList.add('load');
+      txt.textContent = 'Загрузка модели…';
+      btn.disabled = true; btn.textContent = 'Загрузка…';
+    } else if (enabled && ready) {
+      dot.classList.add('on');
+      txt.textContent = '✅ Включена — разбираю ИИ на устройстве';
+      btn.classList.remove('btn--primary'); btn.classList.add('btn--ghost');
+      btn.textContent = 'Выключить модель';
+    } else if (enabled && !ready) {
+      dot.classList.add('load');
+      txt.textContent = 'Включена, но не загружена — нажмите, чтобы загрузить';
+      btn.textContent = 'Загрузить и включить';
+    } else {
+      dot.classList.add('off');
+      txt.textContent = 'Выключена — работают правила';
+      btn.textContent = 'Включить модель';
+    }
+  }
+
+  async function toggleWebllm() {
+    if (!window.WebLLM || !WebLLM.isSupported()) { renderWebllmState(); return; }
+    // если уже включена и загружена — выключаем
+    if (state.settings.webllmEnabled && WebLLM.isReady()) {
+      state.settings.webllmEnabled = false;
+      await DB.setMeta('settings', state.settings);
+      try { await WebLLM.unload(); } catch (e) {}
+      renderWebllmState();
+      toast('Модель выключена — разбор по правилам');
+      return;
+    }
+    // иначе включаем и грузим
+    const modelKey = $('setWebllmModel').value || 'qwen2.5-0.5b';
+    state.settings.webllmModel = modelKey;
+    state.settings.webllmEnabled = true;
+    await DB.setMeta('settings', state.settings);
     const bar = $('webllmBar'); const prog = $('webllmProgress');
     prog.hidden = false; bar.style.width = '0%';
-    s.textContent = 'Загрузка модели… (первый раз — несколько минут, потом из кэша)';
-    s.className = 'auth-status';
-    $('btnWebllmLoad').disabled = true;
+    renderWebllmState();
     try {
       await WebLLM.load(modelKey, (p) => {
-        bar.style.width = Math.round((p.progress || 0) * 100) + '%';
-        if (p.text) s.textContent = p.text;
+        const pct = Math.round((p.progress || 0) * 100);
+        bar.style.width = pct + '%';
+        $('webllmStateText').textContent = 'Загрузка модели… ' + pct + '%';
       });
       bar.style.width = '100%';
-      s.textContent = 'Готово! Модель загружена — умный разбор работает офлайн.';
-      s.className = 'auth-status ok';
-      state.settings.webllmEnabled = true;
-      $('setWebllmEnabled').checked = true;
-      await DB.setMeta('settings', state.settings);
+      renderWebllmState();
+      toast('Готово! Модель включена');
     } catch (e) {
       console.error(e);
-      s.textContent = 'Не удалось загрузить модель: ' + (e.message || e) + '. Разбор пойдёт по правилам.';
-      s.className = 'auth-status err';
+      state.settings.webllmEnabled = false;
+      await DB.setMeta('settings', state.settings);
+      $('webllmStateText').textContent = 'Ошибка загрузки: ' + (e && e.message || e);
+      document.querySelector('#webllmState .engine-dot').className = 'engine-dot err';
+      $('btnWebllmToggle').textContent = 'Повторить';
     } finally {
-      $('btnWebllmLoad').disabled = false;
-      setTimeout(() => { prog.hidden = true; }, 1500);
+      setTimeout(() => { $('webllmProgress').hidden = true; }, 1500);
     }
   }
 
@@ -923,11 +966,11 @@
     $('settingsSave').onclick = saveSettings;
     $('btnAddSection').onclick = addSection;
     $('btnLlmTest').onclick = testLlm;
-    $('btnWebllmLoad').onclick = loadWebllm;
-    $('setWebllmEnabled').onchange = (e) => {
-      state.settings.webllmEnabled = e.target.checked;
-      DB.setMeta('settings', state.settings);
-      if (e.target.checked && window.WebLLM && WebLLM.isSupported() && !WebLLM.isReady()) loadWebllm();
+    $('btnWebllmToggle').onclick = toggleWebllm;
+    $('setWebllmModel').onchange = async () => {
+      // если модель включена, а выбрали другую — перегружаем
+      if (state.settings.webllmEnabled) { await WebLLM.unload().catch(() => {}); await toggleWebllm(); }
+      else { state.settings.webllmModel = $('setWebllmModel').value; DB.setMeta('settings', state.settings); }
     };
     $('btnCloudTest').onclick = testCloud;
 

@@ -27,6 +27,8 @@
 
   function isSupported() { return typeof navigator !== 'undefined' && !!navigator.gpu; }
   function isReady() { return !!engine; }
+  function isLoading() { return !!loading; }
+  function currentModel() { return loadedModelId; }
   function resolveModel(key) { return MODELS[key] || key || MODELS[DEFAULT_MODEL]; }
 
   // Загрузка (скачивание при первом разе) движка и модели.
@@ -132,5 +134,5 @@
     return drafts;
   }
 
-  global.WebLLM = { isSupported, isReady, load, unload, parse, MODELS, DEFAULT_MODEL };
+  global.WebLLM = { isSupported, isReady, isLoading, currentModel, load, unload, parse, resolveModel, MODELS, DEFAULT_MODEL };
 })(window);

@@ -429,6 +429,14 @@ main {
   border-radius: 6px; overflow: hidden; margin: 10px 0 6px;
 }
 .webllm-bar { height: 100%; width: 0%; background: var(--accent); transition: width .3s; }
+.engine-state { display: flex; align-items: center; gap: 9px; margin: 4px 0 12px; }
+.engine-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--text-faint); flex: none; }
+.engine-dot.on { background: var(--success); }
+.engine-dot.off { background: var(--text-faint); }
+.engine-dot.err { background: var(--danger); }
+.engine-dot.load { background: var(--accent); animation: engineBlink 1s infinite; }
+@keyframes engineBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.engine-text { font-size: 14px; font-weight: 600; }
 .auth-box { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
 .auth-status { font-size: 13px; color: var(--text-dim); min-height: 18px; }
 .auth-status.ok { color: var(--success); }
