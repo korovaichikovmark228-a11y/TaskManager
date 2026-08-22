@@ -65,13 +65,15 @@
     for (const it of parsed.tasks) {
       let text = (it && typeof it.text === 'string') ? it.text.trim() : '';
       if (!text) continue;
-      let sectionId = it.section_id;
-      if (!validIds.has(sectionId)) {
-        // модель могла вернуть название вместо id — попробуем сопоставить,
-        // иначе доверимся rule-based определению раздела
-        const byName = sections.find((s) => s.name.toLowerCase() === String(sectionId || '').toLowerCase());
-        sectionId = byName ? byName.id
-          : ((global.Parser && Parser.detectSection(text, sections)) || {}).id || fallbackId;
+      // Раздел определяется ключевыми словами пользователя — доверяем правилам,
+      // если они нашли раздел; иначе берём выбор модели.
+      let sectionId;
+      const ruleSec = global.Parser && Parser.detectSection(text, sections);
+      if (ruleSec) sectionId = ruleSec.id;
+      else if (validIds.has(it.section_id)) sectionId = it.section_id;
+      else {
+        const byName = sections.find((s) => s.name.toLowerCase() === String(it.section_id || '').toLowerCase());
+        sectionId = byName ? byName.id : fallbackId;
       }
       let priority = it.priority;
       if (priority !== 'high' && priority !== 'low' && priority !== 'medium') priority = 'medium';

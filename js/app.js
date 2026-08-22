@@ -90,10 +90,12 @@
     window.addEventListener('online', () => { updateSyncBadge(); if (Sync.currentUser()) doSync(true); });
     window.addEventListener('offline', () => updateSyncBadge());
 
-    // Предзагрузка модели на устройстве (из кэша — быстро; иначе тихо ждёт),
-    // чтобы умный разбор был готов, в т.ч. офлайн.
+    // Предзагрузка модели на устройстве с видимым индикатором.
     if (state.settings.webllmEnabled && window.WebLLM && WebLLM.isSupported()) {
-      WebLLM.load(state.settings.webllmModel).catch((e) => console.warn('WebLLM preload:', e));
+      setModelLoading(true, 'Загрузка ИИ-модели…');
+      WebLLM.load(state.settings.webllmModel, webllmProgress)
+        .then(() => setModelLoading(false))
+        .catch((e) => { console.warn('WebLLM preload:', e); setModelLoading(false); });
     }
   }
 
@@ -278,11 +280,12 @@
         lastError = 'WebGPU не поддерживается';
       } else {
         try {
-          if (!WebLLM.isReady()) { toast('Загружаю модель… (первый раз дольше)', 120000); await WebLLM.load(state.settings.webllmModel); }
-          toast('Модель думает… (0.5B на телефоне — до ~40 сек)', 60000);
+          if (!WebLLM.isReady()) { setModelLoading(true, 'Загрузка ИИ-модели…'); await WebLLM.load(state.settings.webllmModel, webllmProgress); }
+          setModelLoading(true, '🧠 Модель думает…');
           drafts = await WebLLM.parse(raw, state.sections);
           engine = 'на устройстве';
         } catch (e) { lastError = 'модель: ' + (e && e.message || e); console.warn('WebLLM failed:', e); }
+        finally { setModelLoading(false); }
       }
     }
 
@@ -733,6 +736,21 @@
     }
   }
 
+  // Глобальный баннер загрузки модели (виден на любом экране).
+  function setModelLoading(show, text) {
+    const el = $('modelLoading');
+    if (!el) return;
+    if (text) $('modelLoadingText').textContent = text;
+    el.hidden = !show;
+  }
+  // Единый колбэк прогресса: обновляет баннер и полосу в настройках.
+  function webllmProgress(p) {
+    const pct = Math.round((p && p.progress || 0) * 100);
+    setModelLoading(true, 'Загрузка ИИ-модели… ' + pct + '%');
+    const bar = $('webllmBar'); if (bar) bar.style.width = pct + '%';
+    const st = $('webllmStateText'); if (st && !$('settingsOverlay').hidden) st.textContent = 'Загрузка модели… ' + pct + '%';
+  }
+
   // Единый рендер состояния модели: цветной индикатор + подпись + кнопка.
   function renderWebllmState() {
     const dot = document.querySelector('#webllmState .engine-dot');
@@ -791,18 +809,17 @@
     await DB.setMeta('settings', state.settings);
     const bar = $('webllmBar'); const prog = $('webllmProgress');
     prog.hidden = false; bar.style.width = '0%';
+    setModelLoading(true, 'Загрузка ИИ-модели…');
     renderWebllmState();
     try {
-      await WebLLM.load(modelKey, (p) => {
-        const pct = Math.round((p.progress || 0) * 100);
-        bar.style.width = pct + '%';
-        $('webllmStateText').textContent = 'Загрузка модели… ' + pct + '%';
-      });
+      await WebLLM.load(modelKey, webllmProgress);
       bar.style.width = '100%';
+      setModelLoading(false);
       renderWebllmState();
       toast('Готово! Модель включена');
     } catch (e) {
       console.error(e);
+      setModelLoading(false);
       state.settings.webllmEnabled = false;
       await DB.setMeta('settings', state.settings);
       $('webllmStateText').textContent = 'Ошибка загрузки: ' + (e && e.message || e);
