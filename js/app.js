@@ -751,6 +751,8 @@
   }
   // Единый колбэк прогресса: обновляет баннер и полосу в настройках.
   function webllmProgress(p) {
+    // если модель успели выключить/отменить — не показываем баннер вообще
+    if (!state.settings.webllmEnabled) { setModelLoading(false); return; }
     const pct = Math.round((p && p.progress || 0) * 100);
     setModelLoading(true, 'Загрузка ИИ-модели… ' + pct + '%');
     const bar = $('webllmBar'); if (bar) bar.style.width = pct + '%';
@@ -998,6 +1000,7 @@
     $('btnAddSection').onclick = addSection;
     $('btnLlmTest').onclick = testLlm;
     $('btnWebllmToggle').onclick = toggleWebllm;
+    $('modelLoading').onclick = () => setModelLoading(false); // тап по баннеру — скрыть
     $('setWebllmModel').onchange = async () => {
       // если модель включена, а выбрали другую — перегружаем
       if (state.settings.webllmEnabled) { await WebLLM.unload().catch(() => {}); await toggleWebllm(); }

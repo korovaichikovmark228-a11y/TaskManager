@@ -162,6 +162,12 @@
   const CLOUD_DEFAULTS = {
     url: 'https://openrouter.ai/api/v1',
     model: 'google/gemma-4-31b-it:free',
+    // запасные бесплатные модели — если основная занята (429), берём следующую
+    fallbacks: [
+      'nvidia/nemotron-3-super-120b-a12b:free',
+      'google/gemma-4-26b-a4b-it:free',
+      'nvidia/nemotron-3-nano-30b-a3b:free',
+    ],
   };
 
   function chatHeaders(apiKey) {
@@ -172,57 +178,28 @@
     return h;
   }
 
-  /* Разбор через облачную модель. opts: {url, apiKey, model, timeoutMs} */
-  async function parseCloud(raw, sections, opts) {
-    opts = opts || {};
-    const url = normUrl(opts.url || CLOUD_DEFAULTS.url);
-    const model = (opts.model || CLOUD_DEFAULTS.model).trim();
+  // Список моделей: пользовательская + запасные, без дублей.
+  function modelChain(opts) {
+    const primary = (opts.model || CLOUD_DEFAULTS.model).trim();
+    return [primary].concat(CLOUD_DEFAULTS.fallbacks).filter((m, i, a) => m && a.indexOf(m) === i);
+  }
+
+  // Один запрос к конкретной модели. Возвращает content или бросает ошибку.
+  async function cloudChat(url, apiKey, model, raw, sections, timeoutMs) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), opts.timeoutMs || 30000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 30000);
     let resp;
     try {
       resp = await fetch(url + '/chat/completions', {
-        method: 'POST',
-        headers: chatHeaders(opts.apiKey),
-        signal: controller.signal,
+        method: 'POST', headers: chatHeaders(apiKey), signal: controller.signal,
         body: JSON.stringify({
           model,
           messages: [
             { role: 'system', content: 'Ты — парсер задач. Отвечай СТРОГО одним JSON-объектом, без пояснений.' },
             { role: 'user', content: buildPrompt(raw, sections) },
           ],
-          response_format: { type: 'json_object' },
           temperature: 0.1,
         }),
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-    if (!resp.ok) {
-      let msg = 'HTTP ' + resp.status;
-      try { const e = await resp.json(); if (e.error && e.error.message) msg = e.error.message; } catch (e) {}
-      throw new Error(msg);
-    }
-    const data = await resp.json();
-    const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    const drafts = normalize(extractJson(content), sections, raw);
-    if (drafts.length === 0) throw new Error('Модель вернула пустой разбор');
-    return drafts;
-  }
-
-  // Проверка связи и ключа (для настроек): тот же путь, что и реальный разбор
-  // (минимальный chat/completions), чтобы гарантировать, что и разбор пройдёт.
-  async function pingCloud(opts) {
-    opts = opts || {};
-    const url = normUrl(opts.url || CLOUD_DEFAULTS.url);
-    const model = (opts.model || CLOUD_DEFAULTS.model).trim();
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
-    let resp;
-    try {
-      resp = await fetch(url + '/chat/completions', {
-        method: 'POST', headers: chatHeaders(opts.apiKey), signal: controller.signal,
-        body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ok' }], max_tokens: 1 }),
       });
     } finally { clearTimeout(timer); }
     if (!resp.ok) {
@@ -230,7 +207,52 @@
       try { const e = await resp.json(); if (e.error && e.error.message) msg = e.error.message; } catch (e) {}
       throw new Error(msg);
     }
-    return { ok: true };
+    const data = await resp.json();
+    return data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  }
+
+  /* Разбор через облачную модель с автоперебором. opts: {url, apiKey, model, timeoutMs} */
+  async function parseCloud(raw, sections, opts) {
+    opts = opts || {};
+    const url = normUrl(opts.url || CLOUD_DEFAULTS.url);
+    let lastErr = null;
+    for (const model of modelChain(opts)) {
+      try {
+        const content = await cloudChat(url, opts.apiKey, model, raw, sections, opts.timeoutMs);
+        const drafts = normalize(extractJson(content), sections, raw);
+        if (drafts.length) return drafts;
+        lastErr = new Error('пустой ответ (' + model + ')');
+      } catch (e) { lastErr = e; }
+      // пробуем следующую модель (лимит/ошибка/пусто)
+    }
+    throw lastErr || new Error('нет доступной модели');
+  }
+
+  // Проверка связи и ключа (для настроек): тот же путь, что и реальный разбор
+  // (минимальный chat/completions), чтобы гарантировать, что и разбор пройдёт.
+  async function pingCloud(opts) {
+    opts = opts || {};
+    const url = normUrl(opts.url || CLOUD_DEFAULTS.url);
+    let lastErr = null;
+    for (const model of modelChain(opts)) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      let resp;
+      try {
+        resp = await fetch(url + '/chat/completions', {
+          method: 'POST', headers: chatHeaders(opts.apiKey), signal: controller.signal,
+          body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ok' }], max_tokens: 1 }),
+        });
+      } catch (e) { lastErr = e; clearTimeout(timer); continue; }
+      clearTimeout(timer);
+      if (resp.ok) return { ok: true, model };
+      let msg = 'HTTP ' + resp.status;
+      try { const e = await resp.json(); if (e.error && e.error.message) msg = e.error.message; } catch (e) {}
+      lastErr = new Error(msg);
+      // 401/403 — проблема ключа, дальше пробовать бессмысленно
+      if (resp.status === 401 || resp.status === 403) break;
+    }
+    throw lastErr || new Error('нет ответа');
   }
 
   global.LLM = { parse, ping, parseCloud, pingCloud, DEFAULTS, CLOUD_DEFAULTS };
