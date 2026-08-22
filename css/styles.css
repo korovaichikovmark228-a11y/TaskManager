@@ -117,6 +117,13 @@ main {
   border-radius: 20px; padding: 1px 8px;
 }
 .section-empty { color: var(--text-faint); font-size: 13px; padding: 2px 8px 6px; }
+.section-add {
+  margin-left: auto; flex: none;
+  width: 28px; height: 28px; border-radius: 8px;
+  background: var(--bg-elev2); border: 1px solid var(--line); color: var(--accent);
+  font-size: 18px; line-height: 1; cursor: pointer; display: grid; place-items: center;
+}
+.section-add:active { background: var(--bg-elev); }
 
 .task {
   display: flex; align-items: flex-start; gap: 10px;

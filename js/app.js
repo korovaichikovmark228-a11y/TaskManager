@@ -128,14 +128,16 @@
     return { label, overdue: diff < 0 };
   }
 
-  function sectionBlock(name, color, list) {
+  function sectionBlock(name, color, list, sectionId) {
     const secEl = document.createElement('div');
     secEl.className = 'section';
     const head = document.createElement('div');
     head.className = 'section-header';
     head.innerHTML = `<span class="section-dot" style="background:${color}"></span>
       <span class="section-name">${escapeHtml(name)}</span>
-      <span class="section-count">${list.filter((t) => !t.done).length}</span>`;
+      <span class="section-count">${list.filter((t) => !t.done).length}</span>
+      ${sectionId ? `<button class="section-add" title="Добавить задачу в «${escapeHtml(name)}»" aria-label="Добавить задачу">＋</button>` : ''}`;
+    if (sectionId) head.querySelector('.section-add').onclick = () => openManualAdd(sectionId);
     secEl.appendChild(head);
     if (list.length === 0) {
       const e = document.createElement('div');
@@ -145,6 +147,12 @@
     }
     for (const t of list) secEl.appendChild(taskEl(t));
     return secEl;
+  }
+
+  // Ручное добавление задачи прямо в выбранный раздел (без разбора).
+  function openManualAdd(sectionId) {
+    reviewItems = [{ id: null, text: '', sectionId, priority: 'medium', due: null, time: null }];
+    openReview(true);
   }
 
   function render() {
@@ -157,7 +165,7 @@
       const list = tasksOf(sec.id).filter(matchesFilter);
       if (filtered && list.length === 0) continue; // в фильтрах прячем пустые разделы
       shown += list.length;
-      container.appendChild(sectionBlock(sec.name, sec.color, list));
+      container.appendChild(sectionBlock(sec.name, sec.color, list, sec.id));
     }
 
     // задачи без существующего раздела (после удаления раздела/импорта/синка)
@@ -302,11 +310,16 @@
   }
 
   /* ---------------- ЭКРАН ПОДТВЕРЖДЕНИЯ ---------------- */
-  function openReview() {
+  function openReview(focusFirst) {
     const list = $('reviewList');
     list.innerHTML = '';
     reviewItems.forEach((item, idx) => list.appendChild(reviewItemEl(item, idx)));
+    const manual = reviewItems.length === 1 && !reviewItems[0].id && !reviewItems[0].text;
+    $('reviewSub').textContent = manual
+      ? 'Введите задачу — она попадёт в выбранный раздел. Можно задать важность, дату и время.'
+      : 'Приложение разложило ввод на задачи. Поправьте раздел, срок или важность при необходимости.';
     $('reviewOverlay').hidden = false;
+    if (focusFirst) { const ta = list.querySelector('.ri-text'); if (ta) ta.focus(); }
   }
   function closeReview() { $('reviewOverlay').hidden = true; reviewItems = []; }
 
