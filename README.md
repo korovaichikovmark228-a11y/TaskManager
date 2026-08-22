@@ -68,7 +68,7 @@ python -m http.server 8080
 
 ```sql
 create table public.tasks (
-  id uuid primary key,
+  id text primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
   text text,
   section_id text,
@@ -77,13 +77,17 @@ create table public.tasks (
   time text,
   done boolean default false,
   deleted boolean default false,
-  created_at timestamptz,
-  updated_at timestamptz
+  created_at text,
+  updated_at text
 );
 alter table public.tasks enable row level security;
 create policy "own tasks" on public.tasks
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 ```
+
+> `id`, `created_at`, `updated_at` — тип `text` (id приложения не всегда UUID,
+> а строки времени должны совпадать байт-в-байт для стратегии «последняя
+> правка побеждает»).
 
 3. В приложении: ⚙ Настройки → Синхронизация → вставить Project URL и anon key →
    Готово → зарегистрироваться/войти. Разделы используют фиксированные id, поэтому
