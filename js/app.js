@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = 'v31'; // держим в синхроне с CACHE в sw.js
+  const APP_VERSION = 'v32'; // держим в синхроне с CACHE в sw.js
   const $ = (id) => document.getElementById(id);
 
   // Показ любой ошибки прямо на экране (для диагностики на телефоне).
@@ -379,16 +379,9 @@
       } catch (e) { lastError = 'облако: ' + (e && e.message || e); console.warn('Cloud failed:', e); }
     }
 
-    // 2) Модель на устройстве (WebLLM) — если включена (в основном как офлайн-запас).
-    if (!drafts && state.settings.webllmEnabled && window.WebLLM && WebLLM.isSupported()) {
-      try {
-        if (!WebLLM.isReady()) { setModelLoading(true, 'Загрузка ИИ-модели…'); await WebLLM.load(state.settings.webllmModel, webllmProgress); }
-        setModelLoading(true, '🧠 Модель думает…');
-        drafts = await WebLLM.parse(raw, state.sections);
-        engine = 'на устройстве';
-      } catch (e) { lastError = 'модель: ' + (e && e.message || e); console.warn('WebLLM failed:', e); }
-      finally { setModelLoading(false); }
-    }
+    // Модель на устройстве (0.5B) в авто-разборе НЕ используем: для русского
+    // она хуже правил (эхо сырого текста). Умный разбор — только облако; офлайн
+    // и без ключа работает разбор по правилам (он аккуратнее мелкой модели).
 
     // 3) Умный разбор через Ollama (если настроено и есть сеть).
     if (!drafts && state.settings.llmEnabled && window.LLM) {
