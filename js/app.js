@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = 'v32'; // держим в синхроне с CACHE в sw.js
+  const APP_VERSION = 'v33'; // держим в синхроне с CACHE в sw.js
   const $ = (id) => document.getElementById(id);
 
   // Показ любой ошибки прямо на экране (для диагностики на телефоне).
@@ -311,13 +311,18 @@
       : (t.time ? `<span class="chip due">⏰ ${t.time}</span>` : '');
     const prioChip = t.priority !== 'medium'
       ? `<span class="chip prio-${t.priority}">${PRIO_LABEL[t.priority]}</span>` : '';
+    const subs = Array.isArray(t.subtasks) ? t.subtasks : [];
+    const subDone = subs.filter((s) => s.done).length;
+    const subChip = subs.length ? `<span class="chip sub-count">☑ ${subDone}/${subs.length}</span>` : '';
     el.innerHTML = `
       <button class="check" aria-label="Выполнено">✓</button>
       <div class="task-body">
         <div class="task-text">${escapeHtml(t.text)}</div>
-        <div class="task-meta">${prioChip}${dueChip}</div>
+        <div class="task-meta">${prioChip}${dueChip}${subChip}</div>
+        <div class="subtasks"></div>
       </div>
       <div class="task-actions">
+        <button class="mini-btn subadd" title="Подзадача">➕</button>
         <button class="mini-btn focus" title="Фокус">🎯</button>
         <button class="mini-btn edit" title="Изменить">✏️</button>
         <button class="mini-btn del" title="Удалить">🗑</button>
@@ -326,7 +331,77 @@
     el.querySelector('.focus').onclick = () => openFocus(t.id);
     el.querySelector('.edit').onclick = () => openEdit(t.id);
     el.querySelector('.del').onclick = () => deleteTask(t.id);
+    el.querySelector('.subadd').onclick = () => beginAddSubtask(el, t.id);
+
+    // подзадачи-чеклист
+    const box = el.querySelector('.subtasks');
+    for (const s of subs) box.appendChild(subtaskEl(t.id, s));
     return el;
+  }
+
+  function subtaskEl(taskId, s) {
+    const row = document.createElement('div');
+    row.className = 'subtask' + (s.done ? ' done' : '');
+    row.innerHTML = `
+      <button class="sub-check" aria-label="Готово">✓</button>
+      <span class="sub-text">${escapeHtml(s.text)}</span>
+      <button class="sub-del" aria-label="Удалить">✕</button>`;
+    row.querySelector('.sub-check').onclick = () => toggleSubtask(taskId, s.id);
+    row.querySelector('.sub-del').onclick = () => deleteSubtask(taskId, s.id);
+    return row;
+  }
+
+  // Инлайн-добавление подзадачи (без модалок).
+  function beginAddSubtask(taskEl, taskId) {
+    const box = taskEl.querySelector('.subtasks');
+    if (box.querySelector('.sub-input')) { box.querySelector('.sub-input').focus(); return; }
+    const wrap = document.createElement('div');
+    wrap.className = 'subtask';
+    wrap.innerHTML = `<span class="sub-check ghost">✓</span><input class="sub-input" type="text" placeholder="Подзадача…" />`;
+    box.appendChild(wrap);
+    const input = wrap.querySelector('.sub-input');
+    input.focus();
+    let done = false; // защита от двойного коммита (Enter + blur при ре-рендере)
+    const commit = async () => {
+      if (done) return;
+      done = true;
+      const v = input.value.trim();
+      if (v) { await addSubtask(taskId, v); } // addSubtask сам сделает render()
+      else wrap.remove();
+    };
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { done = true; wrap.remove(); }
+    };
+    input.onblur = () => commit();
+  }
+
+  async function addSubtask(taskId, text) {
+    const t = state.tasks.find((x) => x.id === taskId);
+    if (!t) return;
+    if (!Array.isArray(t.subtasks)) t.subtasks = [];
+    t.subtasks.push({ id: uid(), text: text.trim(), done: false });
+    await persistTask(t);
+    render();
+    queueSync();
+  }
+  async function toggleSubtask(taskId, subId) {
+    const t = state.tasks.find((x) => x.id === taskId);
+    if (!t || !Array.isArray(t.subtasks)) return;
+    const s = t.subtasks.find((x) => x.id === subId);
+    if (!s) return;
+    s.done = !s.done;
+    await persistTask(t);
+    render();
+    queueSync();
+  }
+  async function deleteSubtask(taskId, subId) {
+    const t = state.tasks.find((x) => x.id === taskId);
+    if (!t || !Array.isArray(t.subtasks)) return;
+    t.subtasks = t.subtasks.filter((x) => x.id !== subId);
+    await persistTask(t);
+    render();
+    queueSync();
   }
 
   /* ---------------- CRUD ---------------- */
@@ -431,7 +506,11 @@
       ? 'Введите задачу — она попадёт в выбранный раздел. Можно задать важность, дату и время.'
       : 'Приложение разложило ввод на задачи. Поправьте раздел, срок или важность при необходимости.';
     $('reviewOverlay').hidden = false;
-    if (focusFirst) { const ta = list.querySelector('.ri-text'); if (ta) ta.focus(); }
+    if (focusFirst) {
+      const tas = list.querySelectorAll('.ri-text');
+      const ta = tas[tas.length - 1];
+      if (ta) { ta.focus(); ta.scrollIntoView({ block: 'center' }); }
+    }
   }
   function closeReview() { $('reviewOverlay').hidden = true; reviewItems = []; }
 
@@ -527,6 +606,7 @@
           priority: item.priority,
           due: item.due || null,
           time: item.time || null,
+          subtasks: [],
           done: false,
           deleted: false,
           createdAt: nowISO(),
@@ -1089,6 +1169,12 @@
     $('reviewClose').onclick = closeReview;
     $('reviewCancel').onclick = closeReview;
     $('reviewSave').onclick = saveReview;
+    $('reviewAdd').onclick = () => {
+      const last = reviewItems[reviewItems.length - 1];
+      const sectionId = (last && last.sectionId) || (sortedSections()[0] || {}).id;
+      reviewItems.push({ id: null, text: '', sectionId, priority: 'medium', due: null, time: null });
+      openReview(true);
+    };
 
     $('btnMusic').onclick = openMusic;
     $('musicClose').onclick = closeMusic;

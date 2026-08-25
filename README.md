@@ -75,6 +75,7 @@ create table public.tasks (
   priority text,
   due date,
   time text,
+  subtasks text,
   done boolean default false,
   deleted boolean default false,
   created_at text,
@@ -87,7 +88,13 @@ create policy "own tasks" on public.tasks
 
 > `id`, `created_at`, `updated_at` — тип `text` (id приложения не всегда UUID,
 > а строки времени должны совпадать байт-в-байт для стратегии «последняя
-> правка побеждает»).
+> правка побеждает»). `subtasks` — JSON-строка со списком подзадач.
+
+> Если таблица уже создана раньше — добавьте новую колонку одной командой:
+> ```sql
+> alter table public.tasks add column if not exists subtasks text;
+> ```
+> Без неё синхронизация всё равно работает (подзадачи просто не улетают в облако).
 
 3. В приложении: ⚙ Настройки → Синхронизация → вставить Project URL и anon key →
    Готово → зарегистрироваться/войти. Разделы используют фиксированные id, поэтому

@@ -66,10 +66,24 @@
     return (data || []).map(rowToTask);
   }
 
+  // true, если колонки subtasks нет в таблице (старая схема) — тогда шлём без неё.
+  let noSubtasksCol = false;
+  function isMissingSubtasksErr(e) {
+    const m = ((e && (e.message || e.hint || e.details)) || '').toLowerCase();
+    return m.includes('subtasks') && (m.includes('column') || m.includes('schema') || (e && e.code === 'PGRST204'));
+  }
+
   async function pushRemote(tasks) {
     if (!client || !session || !tasks.length) return;
     const rows = tasks.map((t) => taskToRow(t, session.user.id));
-    const { error } = await client.from('tasks').upsert(rows, { onConflict: 'id' });
+    if (noSubtasksCol) rows.forEach((r) => { delete r.subtasks; });
+    let { error } = await client.from('tasks').upsert(rows, { onConflict: 'id' });
+    if (error && isMissingSubtasksErr(error)) {
+      // Колонки subtasks ещё нет в БД — повторяем без неё, дальше не шлём.
+      noSubtasksCol = true;
+      rows.forEach((r) => { delete r.subtasks; });
+      ({ error } = await client.from('tasks').upsert(rows, { onConflict: 'id' }));
+    }
     if (error) throw error;
   }
 
@@ -81,11 +95,19 @@
       priority: r.priority,
       due: r.due,
       time: r.time || null,
+      subtasks: parseSubtasks(r.subtasks),
       done: !!r.done,
       deleted: !!r.deleted,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };
+  }
+  function parseSubtasks(v) {
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string' && v.trim()) {
+      try { const a = JSON.parse(v); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+    }
+    return [];
   }
   function taskToRow(t, userId) {
     return {
@@ -96,6 +118,7 @@
       priority: t.priority,
       due: t.due || null,
       time: t.time || null,
+      subtasks: JSON.stringify(Array.isArray(t.subtasks) ? t.subtasks : []),
       done: !!t.done,
       deleted: !!t.deleted,
       created_at: t.createdAt,

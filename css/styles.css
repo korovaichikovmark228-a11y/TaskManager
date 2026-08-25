@@ -176,6 +176,36 @@ main {
 }
 .mini-btn:active { background: var(--bg-elev2); }
 .mini-btn.focus { color: var(--accent); }
+.mini-btn.subadd { color: var(--text-dim); }
+
+/* ---------- Подзадачи (чеклист внутри задачи) ---------- */
+.chip.sub-count { color: var(--text-dim); }
+.subtasks { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.subtasks:empty { margin-top: 0; }
+.subtask {
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 0; padding-left: 2px;
+}
+.subtask .sub-check {
+  flex: none; width: 20px; height: 20px; border-radius: 6px;
+  border: 1.5px solid var(--line); background: transparent;
+  color: transparent; font-size: 12px; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.subtask .sub-check.ghost { opacity: 0.4; cursor: default; }
+.subtask.done .sub-check { background: var(--accent); border-color: var(--accent); color: #fff; }
+.subtask .sub-text { flex: 1; font-size: 14px; color: var(--text); word-break: break-word; }
+.subtask.done .sub-text { text-decoration: line-through; color: var(--text-faint); }
+.subtask .sub-del {
+  flex: none; background: transparent; border: none; color: var(--text-faint);
+  font-size: 13px; cursor: pointer; padding: 2px 4px; border-radius: 6px;
+}
+.subtask .sub-del:active { background: var(--bg-elev2); }
+.subtask .sub-input {
+  flex: 1; background: var(--bg-elev2); border: 1px solid var(--line);
+  border-radius: 8px; color: var(--text); font-size: 14px; padding: 6px 10px;
+}
+.subtask .sub-input:focus { outline: none; border-color: var(--accent); }
 
 .empty-state { text-align: center; color: var(--text-dim); padding: 60px 24px; }
 .empty-emoji { font-size: 46px; margin-bottom: 12px; }
