@@ -62,13 +62,6 @@
     if (this.onTick) this.onTick(this.remaining, this.total, this.phase);
   };
 
-  // iOS/iPadOS: Safari на iPad 13+ маскируется под «Macintosh», ловим по тач-точкам.
-  function isIOS() {
-    const ua = global.navigator ? (global.navigator.userAgent || '') : '';
-    const touchMac = /Macintosh/.test(ua) && global.navigator && global.navigator.maxTouchPoints > 1;
-    return /iP(hone|ad|od)/.test(ua) || touchMac;
-  }
-
   // ---------------- ПРОЦЕДУРНАЯ МУЗЫКА ----------------
   function Soundscape() {
     this.ctx = null;
@@ -77,8 +70,6 @@
     this._intervals = [];
     this.current = 'none';
     this.volume = 0.45;
-    this._audioEl = null;   // на iOS звук идёт через <audio> (медиа-канал, не «звонок»)
-    this._streamDest = null;
     this._unlocked = false;
     this._bus = null;       // шина текущего запуска — её гасим при стопе
   }
@@ -88,27 +79,21 @@
       this.ctx = new AC();
       this.master = this.ctx.createGain();
       this.master.gain.value = this.volume;
-      // На iOS обычный WebAudio идёт через канал звонка и глушится переключателем/
-      // режимом «без звука». Гоним звук в скрытый <audio> — он играет через медиа-канал.
-      let routed = false;
-      if (isIOS() && typeof this.ctx.createMediaStreamDestination === 'function') {
-        try {
-          this._streamDest = this.ctx.createMediaStreamDestination();
-          this.master.connect(this._streamDest);
-          const el = global.document.createElement('audio');
-          el.setAttribute('playsinline', '');
-          el.playsInline = true;
-          el.autoplay = true;
-          el.srcObject = this._streamDest.stream;
-          el.style.display = 'none';
-          global.document.body.appendChild(el);
-          this._audioEl = el;
-          routed = true;
-        } catch (e) { routed = false; }
-      }
-      if (!routed) this.master.connect(this.ctx.destination);
+      // Звук идёт напрямую в выход — без хитрых MediaStream-обёрток (на iOS они
+      // подвисают и искажают звук). Переключатель «без звука» на iOS 16.4+
+      // обходим правильным способом — audioSession=playback (ниже).
+      this.master.connect(this.ctx.destination);
     }
-    // Разблокировка внутри жеста: resume + короткий тихий буфер + play() на <audio>.
+    // iOS 16.4+: перевести аудио-сессию в режим воспроизведения, чтобы звук шёл
+    // через медиа-канал и не глушился «беззвучным» режимом. На других платформах
+    // свойства нет — просто пропускаем.
+    try {
+      if (global.navigator && global.navigator.audioSession &&
+          global.navigator.audioSession.type !== 'playback') {
+        global.navigator.audioSession.type = 'playback';
+      }
+    } catch (e) {}
+    // Разблокировка внутри жеста: resume + короткий тихий буфер.
     if (this.ctx.state === 'suspended') { try { this.ctx.resume(); } catch (e) {} }
     if (!this._unlocked) {
       try {
@@ -118,7 +103,6 @@
         this._unlocked = true;
       } catch (e) {}
     }
-    if (this._audioEl) { const p = this._audioEl.play(); if (p && p.catch) p.catch(function () {}); }
   };
   Soundscape.prototype.setVolume = function (v) {
     this.volume = v;
