@@ -80,6 +80,7 @@
     this._audioEl = null;   // на iOS звук идёт через <audio> (медиа-канал, не «звонок»)
     this._streamDest = null;
     this._unlocked = false;
+    this._bus = null;       // шина текущего запуска — её гасим при стопе
   }
   Soundscape.prototype._ensure = function () {
     if (!this.ctx) {
@@ -143,6 +144,14 @@
     this.current = type;
     const ctx = this.ctx;
 
+    // Отдельная «шина» для этого запуска: гасим её при остановке, не трогая общий
+    // уровень (master). Так стоп проходит без щелчков и без искажений на iOS.
+    const bus = ctx.createGain();
+    bus.gain.value = 1;
+    bus.connect(this.master);
+    this._bus = bus;
+    this.nodes.push(bus);
+
     if (type === 'brown' || type === 'rain') {
       const src = ctx.createBufferSource();
       src.buffer = this._noiseBuffer();
@@ -152,7 +161,7 @@
       filter.frequency.value = (type === 'rain') ? 1400 : 600;
       const g = ctx.createGain();
       g.gain.value = (type === 'rain') ? 0.5 : 0.7;
-      src.connect(filter); filter.connect(g); g.connect(this.master);
+      src.connect(filter); filter.connect(g); g.connect(bus);
       src.start();
       this.nodes.push(src, filter, g);
       if (type === 'rain') {
@@ -173,7 +182,7 @@
       const gR = ctx.createGain(); gR.gain.value = 0.25;
       oscL.connect(gL); gL.connect(merger, 0, 0);
       oscR.connect(gR); gR.connect(merger, 0, 1);
-      merger.connect(this.master);
+      merger.connect(bus);
       oscL.start(); oscR.start();
       this.nodes.push(oscL, oscR, gL, gR, merger);
     } else if (type === 'lofi') {
@@ -183,7 +192,7 @@
         const osc = ctx.createOscillator();
         osc.type = (i === 0) ? 'triangle' : 'sine';
         const g = ctx.createGain(); g.gain.value = 0.07;
-        osc.connect(g); g.connect(this.master); osc.start();
+        osc.connect(g); g.connect(bus); osc.start();
         oscs.push(osc); this.nodes.push(osc, g);
       }
       const chords = [
@@ -207,7 +216,7 @@
       const filter = ctx.createBiquadFilter();
       filter.type = 'lowpass'; filter.frequency.value = 800;
       const g = ctx.createGain(); g.gain.value = 0.12;
-      src.connect(filter); filter.connect(g); g.connect(this.master);
+      src.connect(filter); filter.connect(g); g.connect(bus);
       src.start();
       this.nodes.push(src, filter, g);
     }
@@ -215,9 +224,32 @@
   Soundscape.prototype.stop = function () {
     this._intervals.forEach((iv) => clearInterval(iv));
     this._intervals = [];
-    this.nodes.forEach((n) => { try { n.stop && n.stop(); n.disconnect && n.disconnect(); } catch (e) {} });
-    this.nodes = [];
     this.current = 'none';
+
+    const ctx = this.ctx;
+    const nodes = this.nodes;
+    const bus = this._bus;
+    this.nodes = [];
+    this._bus = null;
+
+    // Резкий disconnect осцилляторов даёт щелчок, а на iOS-пути через MediaStream
+    // ещё и «затыкает» поток (искажённый луп). Поэтому: сначала плавно гасим шину
+    // этого запуска до нуля (граф отдаёт тишину), и только потом рвём узлы. Общий
+    // уровень (master) и медиа-маршрут не трогаем — громкость сохраняется.
+    const hardStop = () => {
+      nodes.forEach((n) => { try { n.stop && n.stop(); } catch (e) {} try { n.disconnect && n.disconnect(); } catch (e) {} });
+    };
+
+    if (ctx && bus && nodes.length) {
+      try {
+        bus.gain.cancelScheduledValues(ctx.currentTime);
+        bus.gain.setValueAtTime(bus.gain.value, ctx.currentTime);
+        bus.gain.setTargetAtTime(0.00001, ctx.currentTime, 0.02); // ~60мс фейд
+      } catch (e) {}
+      setTimeout(hardStop, 90);
+    } else {
+      hardStop();
+    }
   };
 
   global.Focus = { Timer, Soundscape };
