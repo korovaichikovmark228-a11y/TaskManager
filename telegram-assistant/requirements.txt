@@ -1,0 +1,31 @@
+# --- Telegram / web ---
+aiogram==3.13.1
+fastapi==0.115.2
+uvicorn[standard]==0.30.6
+
+# --- DB ---
+SQLAlchemy[asyncio]==2.0.35
+asyncpg==0.29.0
+psycopg[binary]==3.2.3          # sync driver for Alembic + APScheduler jobstore
+alembic==1.13.3
+pgvector==0.3.5
+
+# --- Scheduler / cache ---
+APScheduler==3.10.4
+redis==5.1.1
+
+# --- AI / HTTP ---
+httpx==0.27.2
+openai==1.51.2                  # OpenAI-compatible client (works with OpenRouter too)
+
+# --- Utils ---
+pydantic==2.9.2
+pydantic-settings==2.5.2
+python-dotenv==1.0.1
+dateparser==1.2.0
+python-dateutil==2.9.0.post0
+tzdata==2024.2
+
+# --- Tests ---
+pytest==8.3.3
+pytest-asyncio==0.24.0
