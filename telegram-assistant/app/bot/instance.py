@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 
 from app.config import get_settings
@@ -14,8 +15,11 @@ _dp: Dispatcher | None = None
 def get_bot() -> Bot:
     global _bot
     if _bot is None:
+        s = get_settings()
+        session = AiohttpSession(proxy=s.telegram_proxy) if s.telegram_proxy else None
         _bot = Bot(
-            token=get_settings().telegram_bot_token,
+            token=s.telegram_bot_token,
+            session=session,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
         )
     return _bot

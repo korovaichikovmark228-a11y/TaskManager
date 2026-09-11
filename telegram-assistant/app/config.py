@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     bot_mode: str = Field("polling", alias="BOT_MODE")  # polling | webhook
     webhook_base_url: str = Field("", alias="WEBHOOK_BASE_URL")  # https://example.com
     webhook_secret: str = Field("change-me", alias="WEBHOOK_SECRET")
+    # Необязательный HTTP-прокси для доступа к Telegram (например, из сетей с
+    # ограничениями). Пусто — прямое соединение. Формат: http://host:port
+    telegram_proxy: str = Field("", alias="TELEGRAM_PROXY")
 
     # --- Database ---
     database_url: str = Field(..., alias="DATABASE_URL")  # postgresql+asyncpg://...
